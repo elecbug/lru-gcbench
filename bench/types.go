@@ -73,6 +73,11 @@ type Environment struct {
 	MetricNames     []string          `json:"metric_names"`
 }
 type RuntimeSample struct {
+	CacheObserved       bool    `json:"cache_observed,omitempty"`
+	CacheElapsedNS      int64   `json:"cache_elapsed_ns,omitempty"`
+	CacheEntries        int     `json:"cache_entries,omitempty"`
+	PressureEvictions   uint64  `json:"pressure_evictions,omitempty"`
+	PressureCompactions uint64  `json:"pressure_compactions,omitempty"`
 	ElapsedNS           int64   `json:"elapsed_ns"`
 	HeapObjectsBytes    uint64  `json:"heap_objects_bytes"`
 	HeapLiveBytes       uint64  `json:"heap_live_bytes"`
@@ -123,32 +128,66 @@ type CompactionWindow struct {
 	DurationNS     int64 `json:"duration_ns"`
 }
 
+type RequestObservation struct {
+	StartElapsedNS int64 `json:"start_elapsed_ns"`
+	EndElapsedNS   int64 `json:"end_elapsed_ns"`
+	Read           bool  `json:"read"`
+	Hit            bool  `json:"hit"`
+}
+
+type RequestWindowSummary struct {
+	Name                  string         `json:"name"`
+	StartElapsedNS        int64          `json:"start_elapsed_ns"`
+	EndElapsedNS          int64          `json:"end_elapsed_ns"`
+	Samples               uint64         `json:"samples"`
+	Reads                 uint64         `json:"reads"`
+	Writes                uint64         `json:"writes"`
+	Hits                  uint64         `json:"hits"`
+	EstimatedOpsPerSecond float64        `json:"estimated_ops_per_second,omitempty"`
+	GetLatency            LatencySummary `json:"get_latency"`
+	PutLatency            LatencySummary `json:"put_latency"`
+	Clipped               bool           `json:"clipped"`
+}
+
+type CompactionProbe struct {
+	Executed         bool  `json:"executed"`
+	TriggerElapsedNS int64 `json:"trigger_elapsed_ns"`
+	EndElapsedNS     int64 `json:"end_elapsed_ns"`
+	EntriesBefore    int   `json:"entries_before"`
+	EntriesAfter     int   `json:"entries_after"`
+}
+
 type Phase struct {
-	ConcurrentCompaction *CompactionWindow `json:"concurrent_compaction,omitempty"`
-	Name                 string            `json:"name"`
-	DurationNS           int64             `json:"duration_ns"` // workload only, excludes boundary snapshots and explicit GC.
-	Operations           uint64            `json:"operations"`
-	Reads                uint64            `json:"reads"`
-	Writes               uint64            `json:"writes"`
-	Hits                 uint64            `json:"hits"`
-	WorkloadChecksum     uint64            `json:"workload_checksum"`
-	Start                Snapshot          `json:"start"`
-	End                  Snapshot          `json:"end"`
-	PostForcedGC         *Snapshot         `json:"post_forced_gc,omitempty"`
-	GCPauses             Histogram         `json:"gc_pauses_delta"`
-	GetLatency           LatencySummary    `json:"get_latency"`
-	PutLatency           LatencySummary    `json:"put_latency"`
+	RequestTrace         []RequestObservation   `json:"request_trace,omitempty"`
+	RequestTraceDropped  uint64                 `json:"request_trace_dropped,omitempty"`
+	RequestWindows       []RequestWindowSummary `json:"request_windows,omitempty"`
+	CompactProbe         *CompactionProbe       `json:"compact_probe,omitempty"`
+	ConcurrentCompaction *CompactionWindow      `json:"concurrent_compaction,omitempty"`
+	Name                 string                 `json:"name"`
+	DurationNS           int64                  `json:"duration_ns"` // workload only, excludes boundary snapshots and explicit GC.
+	Operations           uint64                 `json:"operations"`
+	Reads                uint64                 `json:"reads"`
+	Writes               uint64                 `json:"writes"`
+	Hits                 uint64                 `json:"hits"`
+	WorkloadChecksum     uint64                 `json:"workload_checksum"`
+	Start                Snapshot               `json:"start"`
+	End                  Snapshot               `json:"end"`
+	PostForcedGC         *Snapshot              `json:"post_forced_gc,omitempty"`
+	GCPauses             Histogram              `json:"gc_pauses_delta"`
+	GetLatency           LatencySummary         `json:"get_latency"`
+	PutLatency           LatencySummary         `json:"put_latency"`
 }
 type Result struct {
-	SchemaVersion  int             `json:"schema_version"`
-	Job            Job             `json:"job"`
-	PID            int             `json:"pid"`
-	StartedAt      time.Time       `json:"started_at"`
-	Provenance     Provenance      `json:"provenance"`
-	Environment    Environment     `json:"environment"`
-	Baseline       Snapshot        `json:"baseline"` // before cache construction; harness buffers already allocated.
-	Phases         []Phase         `json:"phases"`
-	Samples        []RuntimeSample `json:"samples"`
-	DroppedSamples uint64          `json:"dropped_samples"`
-	Warnings       []string        `json:"warnings"`
+	Profiling      *ProfileArtifacts `json:"profiling,omitempty"`
+	SchemaVersion  int               `json:"schema_version"`
+	Job            Job               `json:"job"`
+	PID            int               `json:"pid"`
+	StartedAt      time.Time         `json:"started_at"`
+	Provenance     Provenance        `json:"provenance"`
+	Environment    Environment       `json:"environment"`
+	Baseline       Snapshot          `json:"baseline"` // before cache construction; harness buffers already allocated.
+	Phases         []Phase           `json:"phases"`
+	Samples        []RuntimeSample   `json:"samples"`
+	DroppedSamples uint64            `json:"dropped_samples"`
+	Warnings       []string          `json:"warnings"`
 }

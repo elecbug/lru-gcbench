@@ -10,8 +10,8 @@ import (
 
 const qualityExplanation = "Quality thresholds are heuristics, not significance tests or guarantees: fewer than 10 repeats, request phases shorter than 1 second, fewer than 1000 Get/Put latency samples, and fewer than 100 GC pause events warrant investigation. Missing timing is not a zero latency."
 const intervalExplanation = "Medians describe independent worker repeats. When at least 6 observations exist, median intervals use symmetric binomial order-statistic ranks with at least 95% coverage; the actual coverage is shown. Coverage assumes independent repeats from the same distribution. Intervals can be wide, do not establish a performance difference, and are omitted when too few observations exist."
-const interpretation = "Throughput and allocations include key generation, PRNG, value construction and harness bookkeeping. Request quantiles are histogram bucket intervals around optionally timed adapter calls. GC CPU/op is reported only for natural-GC phases without forced cycles. Post-GC heap delta/entry subtracts the process baseline and divides by retained entries; it is omitted for nonpositive deltas or zero entries and is not exact cache-only memory. RSS is Linux process RSS; GOMEMLIMIT is not an RSS cap."
-const samplingExplanation = "Sampled peaks are lower bounds and may miss brief transients. Periodic counts exclude boundary snapshots; the maximum gap includes both phase boundaries. Dropped counts apply to the whole job. Charts also include baseline, phase boundaries and post-GC snapshots. Dense charts retain bucket extrema and endpoints; raw samples.csv and raw/ retain the full recorded data. Cache stats are read at boundaries, not by the periodic sampler. Phase shading includes the boundary interval; duration metrics exclude snapshot overhead."
+const interpretation = "Throughput and allocations include key generation, PRNG, value construction and harness bookkeeping. Read hits/s and misses/s are computed for each run before aggregation, not by multiplying summary medians; memory savings need retained-entry counts and cache utility alongside them. Request quantiles are histogram bucket intervals around optionally timed adapter calls. GC-pause p99 is a secondary diagnostic whose precision depends on pause-event counts. GC CPU/op is reported only for natural-GC phases without forced cycles. Post-GC heap delta/entry subtracts the process baseline and divides by retained entries; it is omitted for nonpositive deltas or zero entries and is not exact cache-only memory. RSS is Linux process RSS; GOMEMLIMIT is not an RSS cap."
+const samplingExplanation = "Sampled peaks are lower bounds and may miss brief transients. Periodic counts exclude boundary snapshots; the maximum gap includes both phase boundaries. Dropped counts apply to the whole job. Charts also include baseline, phase boundaries and post-GC snapshots. Dense charts retain bucket extrema and endpoints; raw samples.csv and raw/ retain the full recorded data. Cache stats are normally boundary-only; opt-in periodic cache observations may acquire cache locks and perturb contention. Blank cache CSV cells mean no cache observation. Phase shading includes the boundary interval; duration metrics exclude snapshot overhead."
 
 type reportColumn struct {
 	Label, Key string
@@ -29,7 +29,7 @@ func metricTable(title string, groups []Aggregate, cols []reportColumn) reportTa
 		t.Headers = append(t.Headers, c.Label)
 	}
 	for _, a := range groups {
-		row := []string{a.Backend, a.Case, a.Runtime, a.Phase, fmt.Sprint(len(a.Replicates))}
+		row := []string{a.Backend, diagnosticCaseLabel(a), a.Runtime, a.Phase, fmt.Sprint(len(a.Replicates))}
 		for _, c := range cols {
 			row = append(row, medianCell(a, c.Key, c.Scale))
 		}
@@ -39,15 +39,56 @@ func metricTable(title string, groups []Aggregate, cols []reportColumn) reportTa
 }
 
 func reportTables(groups []Aggregate) []reportTable {
-	return []reportTable{
+	tables := []reportTable{
 		metricTable("Workload and memory", groups, []reportColumn{{"Duration ms", "duration_ms", 1}, {"Workload ops/s", "workload_ops_per_s", 1}, {"End heap MiB", "end_heap_objects_bytes", 1 << 20}, {"Post-GC heap MiB", "post_gc_heap_objects_bytes", 1 << 20}, {"GC CPU ms", "gc_cpu_delta_seconds", .001}, {"Hit rate", "hit_rate", 1}, {"Entries", "cache_entries_end", 1}}),
+		metricTable("Cache utility and reclamation", groups, []reportColumn{{"Read hits/s", "read_hits_per_s", 1}, {"Read misses/s", "read_misses_per_s", 1}, {"Pressure evictions", "pressure_evictions_delta", 1}, {"Tier 1 compactions", "pressure_tier1_compactions_delta", 1}, {"Tier 2 compactions", "pressure_tier2_compactions_delta", 1}, {"Auto-slack compactions", "auto_slack_compactions_delta", 1}, {"Explicit compactions", "explicit_compactions_delta", 1}}),
 		metricTable("Normalized costs", groups, []reportColumn{{"B/op", "allocated_bytes_per_op", 1}, {"allocs/op", "allocated_objects_per_op", 1}, {"GC CPU ns/op", "gc_cpu_ns_per_op", 1}, {"Post-GC heap delta B/entry", "post_gc_heap_delta_per_entry_bytes", 1}, {"Concurrent Compact ms", "concurrent_compaction_duration_ms", 1}}),
 		metricTable("Sampling coverage (median per run)", groups, []reportColumn{{"Get samples", "get_latency_samples", 1}, {"Put samples", "put_latency_samples", 1}, {"GC pause events", "gc_pause_events", 1}, {"Periodic samples", "periodic_sample_count", 1}, {"RSS samples", "periodic_rss_sample_count", 1}, {"Max gap ms", "periodic_max_gap_ms", 1}, {"Dropped/job", "job_dropped_samples", 1}}),
+		metricTable("Observed retention and arena structure", groups, []reportColumn{{"Cache observations", "periodic_cache_sample_count", 1}, {"Observed min entries", "sampled_cache_entries_min", 1}, {"Observed max entries", "sampled_cache_entries_max", 1}, {"Arena live nodes", "arena_live_nodes_end", 1}, {"Arena free nodes", "arena_free_nodes_end", 1}, {"Arena unallocated slots", "arena_unallocated_capacity_end", 1}}),
 	}
+	for _, window := range []string{"before-trigger", "trigger-window", "after-trigger", "compact-overlap"} {
+		prefix := windowMetricPrefix(window)
+		var eligible []Aggregate
+		for _, group := range groups {
+			if _, ok := group.Metrics[prefix+"samples"]; ok {
+				eligible = append(eligible, group)
+			}
+		}
+		if len(eligible) > 0 {
+			cols := []reportColumn{{"Window ms", prefix + "duration_ms", 1}, {"Trace samples", prefix + "samples", 1}, {"Get samples", prefix + "get_samples", 1}, {"Put samples", prefix + "put_samples", 1}, {"Get p99 upper us", prefix + "get_p99_upper_seconds", 1e-6}, {"Put p99 upper us", prefix + "put_p99_upper_seconds", 1e-6}}
+			if window != "compact-overlap" {
+				cols = append(cols, reportColumn{"Estimated sampled ops/s", prefix + "estimated_ops_per_s", 1})
+			}
+			tables = append(tables, metricTable("Request window: "+window, eligible, cols))
+		}
+	}
+	var compactGroups []Aggregate
+	for _, group := range groups {
+		if _, ok := group.Metrics["compact_probe_entries_before"]; ok {
+			compactGroups = append(compactGroups, group)
+		}
+	}
+	if len(compactGroups) > 0 {
+		tables = append(tables, metricTable("Compact observations", compactGroups, []reportColumn{{"Entries before", "compact_probe_entries_before", 1}, {"Entries after", "compact_probe_entries_after", 1}, {"Actual Compact ms", "concurrent_compaction_duration_ms", 1}, {"Dropped requests", "request_trace_dropped", 1}}))
+	}
+	return tables
 }
 
 func groupLabel(a Aggregate) string {
-	return a.Backend + " / " + a.Case + " / " + a.Runtime + " / " + a.Phase
+	return a.Backend + " / " + diagnosticCaseLabel(a) + " / " + a.Runtime + " / " + a.Phase
+}
+
+func diagnosticCaseLabel(a Aggregate) string {
+	label := a.Case
+	if a.CacheMode == "harness" {
+		label += " [HARNESS CONTROL]"
+	} else if a.CacheMode == "independent" {
+		label += fmt.Sprintf(" [INDEPENDENT x%d]", a.Workers)
+	}
+	if a.Profile != "" {
+		label += " [PROFILE: " + a.Profile + "]"
+	}
+	return label
 }
 
 func recordedWarnings(results []Result) []string {
@@ -104,7 +145,7 @@ func renderMarkdown(m Manifest, results []Result, groups []Aggregate) string {
 	if !warned {
 		b.WriteString("No heuristic warnings were triggered. This does not establish statistical significance.\n")
 	}
-	fmt.Fprintf(&b, "\n## Interpretation\n\n%s\n\n%s\n\nFootprint forces GC after retained-memory phases; natural-GC phases exclude explicit post-phase collections. The concurrent phase runs one Compact while the mixed request workload is active; scheduling can serialize calls, so individual requests are not guaranteed to overlap Compact.\n", interpretation, samplingExplanation)
+	fmt.Fprintf(&b, "\n## Interpretation\n\n%s\n\n%s\n\nFootprint forces GC after retained-memory phases; natural-GC phases exclude explicit post-phase collections. The concurrent phase optionally runs one Compact while requests are active. Fixed request windows use sampled completion times around the same workload trigger, including the disabled control. Their throughput is an estimate from samples, not an exact operation count. Compact-overlap includes sampled calls whose time intervals intersect the actual Compact call; it has no throughput estimate. Inspect request-trace.csv and compact-observations.csv for raw observations and retained entries.\n", interpretation, samplingExplanation)
 	for _, rec := range m.Jobs {
 		if rec.Status != "ok" {
 			fmt.Fprintf(&b, "\n- Unsuccessful / pending job %s: %s — %s\n", mdEscape(rec.Job.ID), mdEscape(rec.Status), mdEscape(rec.Error))
@@ -179,7 +220,7 @@ const htmlReportTemplate = `<!doctype html>
 <style>body{font:15px/1.6 system-ui;margin:32px auto;max-width:1500px;padding:0 24px;color:#172333;background:#fff}h1{font-size:28px}h2{margin-top:2em}a{color:#135b96}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:13px}td,th{padding:7px 10px;border-bottom:1px solid #dce3e9;text-align:right;white-space:nowrap}th{background:#eef3f7}td:first-child,th:first-child{text-align:left}.scroll{overflow:auto;margin:16px 0}.warning{background:#fff4d6;border-left:4px solid #b47800;padding:12px 18px}details{border:1px solid #dce3e9;border-radius:6px;margin:12px 0;padding:10px 16px}summary{cursor:pointer;font-weight:600;overflow-wrap:anywhere}code{overflow-wrap:anywhere}svg{display:block;width:100%;min-width:600px;height:auto}.chart{overflow-x:auto}.heap{fill:none;stroke:#1267b1;stroke-width:2}.rss{fill:none;stroke:#b74926;stroke-width:2;stroke-dasharray:5 3}.axis{stroke:#9baab8;stroke-width:1}.phase{fill:#537d99;fill-opacity:.09}.phase:nth-of-type(even){fill-opacity:.17}.compact{fill:#c1841c;fill-opacity:.22}svg text{font-size:11px;fill:#354555}.legend span{display:inline-block;margin-right:20px}.legend .heap-label{color:#1267b1}.legend .rss-label{color:#b74926}p{max-width:1100px}.muted{color:#536373}</style></head><body>
 <h1>LRU GC benchmark — {{.Manifest.Label}}</h1>
 {{if .Reference}}<p class="warning"><strong>REFERENCE VALIDATION ONLY. These are NOT measurements of google/go-lru.</strong></p>{{end}}
-<p>Successful jobs: <strong>{{.Successful}} / {{len .Manifest.Jobs}}</strong>. <a href="summary.json">Summary JSON</a> · <a href="summary.csv">Summary CSV</a> · <a href="samples.csv">Time-series CSV</a> · <a href="manifest.json">Manifest</a> · <a href="report.md">Markdown</a></p>
+<p>Successful jobs: <strong>{{.Successful}} / {{len .Manifest.Jobs}}</strong>. <a href="summary.json">Summary JSON</a> · <a href="summary.csv">Summary CSV</a> · <a href="samples.csv">Time-series CSV</a> · <a href="request-trace.csv">Request trace</a> · <a href="compact-observations.csv">Compact observations</a> · <a href="manifest.json">Manifest</a> · <a href="report.md">Markdown</a></p>
 <p>Worker SHA256: <code>{{.Manifest.WorkerSHA256}}</code><br>Target commit: <code>{{.Manifest.Capabilities.Provenance.TargetCommit}}</code>; dirty: {{.Manifest.Capabilities.Provenance.TargetDirty}}; source SHA256: <code>{{.Manifest.Capabilities.Provenance.TargetTreeSHA256}}</code></p>
 <p>{{.Intervals}} Missing metrics appear as —.</p>
 {{range .Tables}}<h2>{{.Title}}</h2><div class="scroll"><table><thead><tr>{{range .Headers}}<th scope="col">{{.}}</th>{{end}}</tr></thead><tbody>{{range .Rows}}<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>{{end}}</tbody></table></div>{{end}}
@@ -196,6 +237,6 @@ const htmlReportTemplate = `<!doctype html>
 <text x="54" y="29" text-anchor="end">{{.MaxMiB}}</text><text x="54" y="202" text-anchor="end">0</text><text x="10" y="15">MiB</text><text x="940" y="282" text-anchor="end">elapsed seconds</text>
 <path class="heap" d="{{.HeapPath}}"/><path class="rss" d="{{.RSSPath}}"/></svg></div>
 <div class="scroll"><table><thead><tr><th>Phase / event</th><th>Start s</th><th>End s</th></tr></thead><tbody>{{range .Phases}}<tr><td>{{.Name}}</td><td>{{.Start}}</td><td>{{.End}}</td></tr>{{end}}{{range .Events}}<tr><td>{{.Name}}</td><td>{{.Start}}</td><td>{{.End}}</td></tr>{{end}}</tbody></table></div></details>{{end}}
-<h2>Interpretation</h2><p>{{.Interpretation}}</p><p>Footprint forces GC after retained-memory phases. Natural-GC counters and pause histograms exclude explicit post-phase collections. A concurrent phase runs one Compact with the mixed request workload active; scheduling can serialize calls, and individual requests are not guaranteed to overlap Compact.</p>
+<h2>Interpretation</h2><p>{{.Interpretation}}</p><p>Footprint forces GC after retained-memory phases. Natural-GC counters and pause histograms exclude explicit post-phase collections. Concurrent phases can enable or disable one Compact at a matched request trigger. Fixed request windows use sampled completion times and estimated throughput; their sparse samples and clipped boundaries limit inference. Compact-overlap reports latency for sampled calls intersecting the actual Compact interval, with no throughput estimate. Compare observed entries before/after the probe and inspect raw trace data.</p>
 {{if .Problems}}<h2>Unsuccessful / pending jobs</h2><ul>{{range .Problems}}<li>{{.Job.ID}}: {{.Status}} — {{.Error}}</li>{{end}}</ul>{{end}}
 {{if .Warnings}}<h2>Recorded caveats</h2><ul>{{range .Warnings}}<li>{{.}}</li>{{end}}</ul>{{end}}</body></html>`

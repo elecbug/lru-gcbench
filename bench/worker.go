@@ -78,6 +78,11 @@ func RunWorker(j Job, factory Factory, source Provenance) (Result, error) {
 	if err := j.Case.Validate(); err != nil {
 		return r, err
 	}
+	profiler, err := prepareProfiler(j.Case)
+	if err != nil {
+		return r, err
+	}
+	defer profiler.finish()
 	c, err := newCollector()
 	if err != nil {
 		return r, err
@@ -87,18 +92,25 @@ func RunWorker(j Job, factory Factory, source Provenance) (Result, error) {
 	if j.Case.Scenario == "footprint" {
 		interval = 0
 	}
-	t := newTracer(c, interval, j.Case.MaxSamples)
+	t := newTracer(c, interval, j.Case.MaxSamples, j.Case.RetainSampleBuffer)
+	defer func() { runtime.KeepAlive(t.points) }()
 	r.Phases = make([]Phase, 0, 5)
 	var counts [5]opCounts
 	// Static metadata and large trace buffers are live before this single baseline GC.
 	runtime.GC()
 	baseline, _ := c.read(false)
 	r.Baseline = Snapshot{Runtime: baseline}
-	cache, err := factory(j.Backend, j.Case)
+	cache, err := newCacheForJob(j, factory)
 	if err != nil {
 		return r, err
 	}
-	t.start(c, interval)
+	if j.Case.SampleCacheStats {
+		t.startWithCache(c, interval, cache)
+	} else {
+		t.start(c, interval)
+	}
+	capacity := j.Case.Capacity * cacheMultiplicity(j.Case)
+	synthetic := j.Case.CacheMode == "harness"
 	stopped := false
 	defer func() {
 		if !stopped {
@@ -114,6 +126,9 @@ func RunWorker(j Job, factory Factory, source Provenance) (Result, error) {
 	var pauseEnds [5]Histogram
 	run := func(name string, fn func() (opCounts, error), forcedGC bool) error {
 		idx := len(r.Phases)
+		if err := profiler.startPhase(name); err != nil {
+			return fmt.Errorf("%s profile: %w", name, err)
+		}
 		start, a := snapshot()
 		then := time.Now()
 		ops, err := fn()
@@ -122,12 +137,15 @@ func RunWorker(j Job, factory Factory, source Provenance) (Result, error) {
 			return fmt.Errorf("%s: %w", name, err)
 		}
 		end, b := snapshot()
+		if err := profiler.finishPhase(name); err != nil {
+			return fmt.Errorf("%s profile: %w", name, err)
+		}
 		// Cheap boundary checks: reject invalid outcomes instead of publishing fast-but-wrong results.
-		if end.Cache.CurrentSize != uint64(end.Cache.Entries) || end.Cache.MaxSize != uint64(j.Case.Capacity) {
+		if !synthetic && (end.Cache.CurrentSize != uint64(end.Cache.Entries) || end.Cache.MaxSize != uint64(capacity)) {
 			return fmt.Errorf("%s: unexpected unit-weight capacity accounting", name)
 		}
-		if !j.Case.PressureReclamation && name == "fill" && end.Cache.Entries != j.Case.Capacity {
-			return fmt.Errorf("fill: retained %d entries, expected %d", end.Cache.Entries, j.Case.Capacity)
+		if !synthetic && !j.Case.PressureReclamation && name == "fill" && end.Cache.Entries != capacity {
+			return fmt.Errorf("fill: retained %d entries, expected %d", end.Cache.Entries, capacity)
 		}
 		if !j.Case.PressureReclamation && (name == "delete" || name == "delete_prefix") {
 			want := j.Case.Capacity - deletedEntryCount(j.Case)
@@ -138,7 +156,7 @@ func RunWorker(j Job, factory Factory, source Provenance) (Result, error) {
 		if name == "compact" && end.Cache.Entries != start.Cache.Entries {
 			return fmt.Errorf("Compact changed entry count: %d -> %d", start.Cache.Entries, end.Cache.Entries)
 		}
-		if name == "warmup" || name == "measured" || name == "recovery" || name == "concurrent" {
+		if !synthetic && (name == "warmup" || name == "measured" || name == "recovery" || name == "concurrent") {
 			hits := sub(end.Cache.GetHits, start.Cache.GetHits)
 			misses := sub(end.Cache.GetMisses, start.Cache.GetMisses)
 			if hits != ops.hits || hits+misses != ops.reads {
@@ -158,14 +176,18 @@ func RunWorker(j Job, factory Factory, source Provenance) (Result, error) {
 		r.Phases = append(r.Phases, p)
 		return nil
 	}
+	fillCopies := cacheMultiplicity(j.Case)
+	if synthetic {
+		fillCopies = j.Case.Workers
+	}
 	fill := func() (opCounts, error) {
 		var o opCounts
 		for i := 0; i < j.Case.Capacity; i++ {
 			if err := cache.Put(MakeKey(uint64(i), j.Case.KeyKind), uint64(i)); err != nil {
 				return o, err
 			}
-			o.operations++
-			o.writes++
+			o.operations += uint64(fillCopies)
+			o.writes += uint64(fillCopies)
 		}
 		return o, nil
 	}
@@ -200,6 +222,8 @@ func RunWorker(j Job, factory Factory, source Provenance) (Result, error) {
 	if err = run("fill", fill, static); err != nil {
 		return r, err
 	}
+	var compactTask *mixedTask
+	compactPhase := -1
 	switch j.Case.Scenario {
 	case "footprint", "reclaim":
 		if err = run(deletePhase, deleteEntries, static); err != nil {
@@ -210,6 +234,7 @@ func RunWorker(j Job, factory Factory, source Provenance) (Result, error) {
 		}
 		if !static {
 			task := prepareMixed(cache, j, j.Case.Operations, 0x41)
+			task.origin = c.origin
 			if err = run("recovery", task.run, false); err != nil {
 				return r, err
 			}
@@ -219,23 +244,23 @@ func RunWorker(j Job, factory Factory, source Provenance) (Result, error) {
 			return r, err
 		}
 		task := prepareMixedTask(cache, j, j.Case.Operations, 0x41, true)
+		task.origin = c.origin
 		if err = run("concurrent", task.run, false); err != nil {
 			return r, err
 		}
-		r.Phases[len(r.Phases)-1].ConcurrentCompaction = &CompactionWindow{
-			StartElapsedNS: task.compactionStart.Sub(c.origin).Nanoseconds(),
-			EndElapsedNS:   task.compactionEnd.Sub(c.origin).Nanoseconds(),
-			DurationNS:     task.compactionEnd.Sub(task.compactionStart).Nanoseconds(),
-		}
-		r.Warnings = append(r.Warnings, "One explicit Compact is triggered halfway through worker 0's stream. Its window lies inside the concurrent workload phase; scheduling and sparse latency samples may miss individual request stalls.")
+		compactTask, compactPhase = task, len(r.Phases)-1
+		r.Warnings = append(r.Warnings, "The Compact probe is triggered at compact_at (default 0.5) of worker 0's operation stream. Enabled and disabled probes observe cache size at both boundaries; their scheduling and observation work is included in the phase.")
+
 	case "steady":
 		if j.Case.WarmupOps > 0 {
 			task := prepareMixed(cache, j, j.Case.WarmupOps, 0x17)
+			task.origin = c.origin
 			if err = run("warmup", task.run, false); err != nil {
 				return r, err
 			}
 		}
 		task := prepareMixed(cache, j, j.Case.Operations, 0x41)
+		task.origin = c.origin
 		if err = run("measured", task.run, false); err != nil {
 			return r, err
 		}
@@ -244,6 +269,19 @@ func RunWorker(j Job, factory Factory, source Provenance) (Result, error) {
 	stopped = true
 	r.Samples = t.points[:t.used]
 	r.DroppedSamples = t.dropped
+	if err := profiler.finish(); err != nil {
+		return r, err
+	}
+	r.Profiling = profiler.artifacts()
+	if r.Profiling != nil {
+		r.Warnings = append(r.Warnings, "PROFILED DIAGNOSTIC RUN: profiling and profile boundary work perturb runtime state; exclude this run from unprofiled performance comparisons.")
+	}
+	if compactTask != nil {
+		finalizeRequestTrace(&r.Phases[compactPhase], compactTask, j.Case)
+		if j.Case.RequestTraceEvery > 0 {
+			r.Warnings = append(r.Warnings, "Request windows use sparse, timestamped adapter calls and fixed elapsed-time intervals around the probe. Window throughput estimates sampled completions; overlapping-call latency has no throughput estimate. Clipped or sparsely sampled windows and individual stalls require inspecting the raw trace.")
+		}
+	}
 	// Delay histogram formatting/report allocations until ALL measurement phases end.
 	for i := range r.Phases {
 		d, err := histogramDelta(pauseStarts[i], pauseEnds[i])
@@ -255,6 +293,11 @@ func RunWorker(j Job, factory Factory, source Provenance) (Result, error) {
 		r.Phases[i].PutLatency = counts[i].put.summary()
 	}
 	r.Warnings = append(r.Warnings, "Throughput includes on-demand key generation, payload creation, PRNG and harness bookkeeping; it is not a cache-only microbenchmark.")
+	if synthetic {
+		r.Warnings = append(r.Warnings, "SYNTHETIC HARNESS CONTROL: the selected backend is bypassed. Per-worker adapters always miss and retain only the latest payload; cache retention, hit rate and cache counters are not comparable to real caches.")
+	} else if j.Case.CacheMode == "independent" {
+		r.Warnings = append(r.Warnings, "Independent topology gives each worker a complete cache with the configured capacity and keyspace. Total capacity and fill operations multiply by workers; retained memory is not matched to the shared-cache condition.")
+	}
 	if source.Kind != "upstream-checkout" {
 		r.Warnings = append(r.Warnings, "REFERENCE VALIDATION ONLY: these are not google/go-lru measurements.")
 	}
@@ -268,7 +311,10 @@ func RunWorker(j Job, factory Factory, source Provenance) (Result, error) {
 		r.Warnings = append(r.Warnings, "Trace buffer filled: later periodic samples were dropped. Increase max_samples or the sampling interval.")
 	}
 	if interval > 0 {
-		r.Warnings = append(r.Warnings, "Periodic runtime sampling can miss transient peaks; RSS is a process-wide Linux-only observation. Cache Stats are sampled at phase boundaries only.")
+		r.Warnings = append(r.Warnings, "Periodic runtime sampling can miss transient peaks; RSS is a process-wide Linux-only observation.")
+		if j.Case.SampleCacheStats {
+			r.Warnings = append(r.Warnings, "Periodic cache Stats observation is opt-in and may acquire cache locks. Cache observation completion has a separate timestamp from the runtime sample; observer work can affect throughput and contention.")
+		}
 	}
 	runtime.KeepAlive(cache)
 	return r, nil

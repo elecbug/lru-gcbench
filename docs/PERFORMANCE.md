@@ -4,11 +4,13 @@ Use fresh actual-backend workers, run suites sequentially on an otherwise idle h
 
 The completed [2026-10-04 study record](../validation/PERFORMANCE-20261004.md) contains 450 repeated-study jobs, 12 pilot jobs and 130 standalone microbenchmark measurements, with the actual build, results and interpretation limits.
 
+The [732-job repeated follow-up](../validation/REPEATED-20261004.md) supplies ten-repeat performance controls, six-repeat profiles, paired effect intervals and dense Compact traces. Its [prepare/run workflow](DIAGNOSTICS.md#freeze-and-run-the-repeated-study) freezes effective configurations and executable hashes; it preserves the original study separately.
+
 ## Recommended sequence
 
 | Order | Configuration | Question | Primary measurements |
 |---|---|---|---|
-| 1 | [calibration.json](../examples/calibration.json) | How much does request timing plus periodic sampling cost? | Measured throughput, B/op and allocs/op with instrumentation off/on |
+| 1 | [calibration.json](../examples/calibration.json) | How do buffer retention, runtime sampling and request timing change results? | Five matched controls; throughput, B/op and allocs/op |
 | 2 | [performance.json](../examples/performance.json) | How do backends behave under a fixed, unconstrained workload? | Throughput, GC CPU/op, sampled Get/Put latency and hit rate |
 | 3 | [footprint.json](../examples/footprint.json) | How does retained memory scale with entry count and value representation? | Post-GC bytes/entry, scan bytes and retained entries after fill/delete/Compact |
 | 4 | [scalability.json](../examples/scalability.json) | What changes with 1, 4 and 8 request workers? | Throughput, request latency, GC CPU and hit rate at fixed GOMAXPROCS |
@@ -23,7 +25,7 @@ The narrow baseline fixes capacity at 100,000 entries, key space at 200,000, ind
 
 Run a one-repetition pilot before a long study. Inspect the `measured` phase duration for every backend and select one common operation count that gives the fastest backend roughly 5–10 seconds of work. Keep that count in the final saved configuration for all backends. Increase the count if the resulting GC or request samples are still inadequate. The example's operation count is a starting point, not an automatic duration guarantee.
 
-Calibration must use the baseline's workload, operation count and runtime settings. It measures the combined effect of periodic sampling, per-request timing and retained tracer memory. The on case allocates and touches its 10,000-slot sample buffer before baseline GC; the off case does not retain that buffer. Although its allocation is outside the measured delta, the extra live heap can affect GC goals and scheduling during measurement. Calibration does not isolate the CPU cost of timing, and faster on-case throughput does not prove a speedup or zero overhead. If calibration's difference is comparable to the backend difference, report that limitation and investigate further before ranking them. Changing sampling or concurrency requires another calibration appropriate to that experiment.
+Calibration must use the baseline's workload, operation count and runtime settings. The current five-arm configuration separates buffer retention from active runtime sampling and request timing: no buffer/timing, retained buffer only, buffer plus runtime sampling, buffer plus request timing, and buffer plus both. The four retained-buffer arms allocate and touch the same 10,000 slots before baseline GC. Compare each activity against buffer-only, and compare buffer-only against no-buffer to examine the retained-memory effect. Their effects can interact through GC and scheduling; faster instrumented throughput does not establish a speedup or zero overhead. The historical study's saved two-arm calibration remains unchanged and cannot establish these separated costs. Changing sampling, topology or concurrency requires a suitable calibration.
 
 Decide the final repetition count in advance. Use the same seed policy and matched settings across backends; use `run-paired` for before/after library versions. Do not run multiple suites concurrently, because their CPU, memory bandwidth and GC contention would become part of each other's workload. Record machine changes and background load that materially affect a run.
 
@@ -79,3 +81,7 @@ Start with job status and quality warnings, then examine durations, sample count
 - Memory comparisons need retained-entry counts and hit rates, especially under pressure. Inspect post-delete/post-Compact phases separately from initial fill.
 
 Keep pilot, functional validation and final study results distinct. Report actual configuration, successful/failed jobs and remaining quality warnings with any numerical finding. Full metric definitions and measurement boundaries are in [METHODOLOGY.md](METHODOLOGY.md).
+
+## Diagnose the observed tradeoffs
+
+Use [DIAGNOSTICS.md](DIAGNOSTICS.md) for the follow-up controls motivated by the original study. Shared/independent/harness topologies and per-phase profiles help locate concurrency costs without assuming a lock is the cause. A smaller-capacity pressure-off control helps separate dynamic reclamation from retaining fewer entries. Read-only Compact enabled/disabled cases keep state comparable while examining local request windows. These new configurations are protocols, not evidence that a bottleneck has been identified or eliminated. Preserve the historical study separately from new diagnostic results.

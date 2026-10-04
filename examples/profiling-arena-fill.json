@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "repetitions": 1,
+  "seed": 42,
+  "timeout": "5m",
+  "backends": [
+    "arena"
+  ],
+  "runtimes": [
+    {
+      "name": "gc100-unlimited",
+      "gomaxprocs": 2,
+      "gogc": 100,
+      "gomemlimit": "off"
+    }
+  ],
+  "cases": [
+    {
+      "name": "arena-fill-1m-allocations",
+      "scenario": "steady",
+      "capacity": 1000000,
+      "key_space": 2000000,
+      "key_kind": "prefix",
+      "value_kind": "bytes",
+      "value_bytes": 256,
+      "pressure_reclamation": false,
+      "workers": 1,
+      "warmup_ops": 0,
+      "operations": 2000000,
+      "read_percent": 90,
+      "delete_fraction": 0.75,
+      "sample_interval": "20ms",
+      "max_samples": 10000,
+      "latency_sample_every": 128,
+      "profile": "allocs",
+      "profile_phase": "fill",
+      "profile_rate": 65536
+    }
+  ]
+}

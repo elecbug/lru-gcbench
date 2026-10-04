@@ -181,21 +181,33 @@ type tracer struct {
 	done    chan struct{}
 }
 
-func newTracer(c *collector, interval time.Duration, maxSamples int) *tracer {
+func newTracer(c *collector, interval time.Duration, maxSamples int, retainBuffer ...bool) *tracer {
 	t := &tracer{}
-	if interval == 0 {
+	retain := len(retainBuffer) > 0 && retainBuffer[0]
+	if interval == 0 && !retain {
 		return t
 	}
-	// Allocate and touch the bounded buffer BEFORE the baseline GC.
+	// Allocate and touch the bounded buffer BEFORE the baseline GC. Retention
+	// allows calibration-off to keep the same live buffer as calibration-on.
 	t.points = make([]RuntimeSample, maxSamples)
 	for i := range t.points {
 		t.points[i].ElapsedNS = -1
+	}
+	if interval == 0 {
+		return t
 	}
 	t.stop = make(chan struct{})
 	t.done = make(chan struct{})
 	return t
 }
 func (t *tracer) start(c *collector, interval time.Duration) {
+	t.startWithCache(c, interval, nil)
+}
+
+// startWithCache opts into cache observations, which may acquire backend locks.
+// Runtime-only sampling passes nil and never calls Stats. Cache observations
+// have a separate completion timestamp because Stats may wait behind Compact.
+func (t *tracer) startWithCache(c *collector, interval time.Duration, cache Cache) {
 	if t.stop == nil {
 		return
 	}
@@ -209,6 +221,14 @@ func (t *tracer) start(c *collector, interval time.Duration) {
 				return
 			case <-tick.C:
 				r, _ := c.read(false)
+				if cache != nil {
+					s := cache.Stats()
+					r.CacheObserved = true
+					r.CacheElapsedNS = time.Since(c.origin).Nanoseconds()
+					r.CacheEntries = s.Entries
+					r.PressureEvictions = s.EvictionsPressure
+					r.PressureCompactions = s.CompactionsPressureTier1 + s.CompactionsPressureTier2
+				}
 				if t.used < len(t.points) {
 					t.points[t.used] = r
 					t.used++

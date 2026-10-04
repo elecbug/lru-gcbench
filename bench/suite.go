@@ -23,6 +23,7 @@ type JobRecord struct {
 	Status     string `json:"status"`
 	ResultFile string `json:"result_file,omitempty"`
 	StderrFile string `json:"stderr_file,omitempty"`
+	ProfileDir string `json:"profile_dir,omitempty"`
 	Error      string `json:"error,omitempty"`
 }
 type Manifest struct {
@@ -217,6 +218,17 @@ func (s *suiteRunner) executeJob(ctx context.Context, rec *JobRecord) (error, bo
 	if err := WriteJSON(requestPath, j); err != nil {
 		return err, false
 	}
+	profileDir := ""
+	if j.Case.Profile != "" {
+		rec.ProfileDir = filepath.ToSlash(filepath.Join("profiles", j.ID))
+		profileDir = filepath.Join(s.out, rec.ProfileDir)
+		if err := os.MkdirAll(profileDir, 0755); err != nil {
+			return err, false
+		}
+		if err := writeProfileInstructions(profileDir, s.worker, j.Case.Profile); err != nil {
+			return err, false
+		}
+	}
 	final := filepath.Join(s.out, rec.ResultFile)
 	tmp := final + ".partial"
 	request, err := json.Marshal(j)
@@ -239,7 +251,7 @@ func (s *suiteRunner) executeJob(ctx context.Context, rec *JobRecord) (error, bo
 	if j.Runtime.GOGC == -1 {
 		gc = "off"
 	}
-	cmd.Env = OverrideEnv(os.Environ(), map[string]string{"GOMAXPROCS": strconv.Itoa(j.Runtime.GOMAXPROCS), "GOGC": gc, "GOMEMLIMIT": j.Runtime.GOMEMLIMIT})
+	cmd.Env = OverrideEnv(profileEnvironment(os.Environ(), profileDir), map[string]string{"GOMAXPROCS": strconv.Itoa(j.Runtime.GOMAXPROCS), "GOGC": gc, "GOMEMLIMIT": j.Runtime.GOMEMLIMIT})
 	cmd.Stdin = strings.NewReader(string(request))
 	cmd.Stdout = output
 	cmd.Stderr = stderr

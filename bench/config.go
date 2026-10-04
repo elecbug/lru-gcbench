@@ -26,6 +26,17 @@ type RuntimeConfig struct {
 }
 
 type Case struct {
+	CacheMode           string  `json:"cache_mode,omitempty"` // shared (default), independent per worker, or synthetic harness control.
+	RetainSampleBuffer  bool    `json:"retain_sample_buffer,omitempty"`
+	SampleCacheStats    bool    `json:"sample_cache_stats,omitempty"` // Opt-in observer; may contend for cache locks.
+	Profile             string  `json:"profile,omitempty"`            // cpu, allocs, mutex, block; diagnostic runs only.
+	ProfilePhase        string  `json:"profile_phase,omitempty"`
+	ProfileRate         int     `json:"profile_rate,omitempty"`
+	CompactMode         string  `json:"compact_mode,omitempty"`   // enabled (default) or disabled matched marker.
+	CompactAt           float64 `json:"compact_at,omitempty"`     // Fraction of worker 0 stream, zero defaults to 0.5.
+	CompactWindow       string  `json:"compact_window,omitempty"` // Fixed request-analysis width; empty defaults to 50ms.
+	RequestTraceEvery   int     `json:"request_trace_every,omitempty"`
+	MaxRequestSamples   int     `json:"max_request_samples,omitempty"`
 	Name                string  `json:"name"`
 	Scenario            string  `json:"scenario"` // footprint, steady, reclaim, concurrent-compact
 	Capacity            int     `json:"capacity"`
@@ -199,6 +210,77 @@ func (v Case) Validate() error {
 	if v.Scenario != "footprint" && v.Scenario != "steady" && v.Scenario != "reclaim" && v.Scenario != "concurrent-compact" {
 		return errors.New("scenario must be footprint, steady, reclaim or concurrent-compact")
 	}
+	if v.CacheMode != "" && v.CacheMode != "shared" && v.CacheMode != "independent" && v.CacheMode != "harness" {
+		return errors.New("cache_mode must be shared, independent or harness")
+	}
+	if (v.CacheMode == "independent" || v.CacheMode == "harness") && v.Scenario != "steady" {
+		return errors.New("independent/harness controls require the steady scenario")
+	}
+	if v.CacheMode == "harness" && v.PressureReclamation {
+		return errors.New("harness control has no pressure reclamation")
+	}
+	if v.Profile == "" {
+		if v.ProfilePhase != "" || v.ProfileRate != 0 {
+			return errors.New("profile_phase/rate require profile")
+		}
+	} else {
+		if v.Profile != "cpu" && v.Profile != "allocs" && v.Profile != "mutex" && v.Profile != "block" {
+			return errors.New("profile must be cpu, allocs, mutex or block")
+		}
+		validPhase := v.ProfilePhase == "fill" || (v.Scenario == "steady" && (v.ProfilePhase == "measured" || v.ProfilePhase == "warmup" && v.WarmupOps > 0)) || (v.Scenario == "reclaim" && (v.ProfilePhase == "recovery" || v.ProfilePhase == "compact")) || (v.Scenario == "footprint" && v.ProfilePhase == "compact") || (v.Scenario == "concurrent-compact" && v.ProfilePhase == "concurrent")
+		deletion := "delete"
+		if v.DeleteMode == "prefix" {
+			deletion = "delete_prefix"
+		}
+		validPhase = validPhase || v.Scenario != "steady" && v.ProfilePhase == deletion
+		if !validPhase {
+			return errors.New("profile_phase must identify an existing phase")
+		}
+		if v.ProfileRate < 0 || v.Profile == "cpu" && v.ProfileRate != 0 {
+			return errors.New("profile_rate must be nonnegative; CPU profiling uses the runtime default")
+		}
+	}
+	if v.CompactMode != "" && v.CompactMode != "enabled" && v.CompactMode != "disabled" {
+		return errors.New("compact_mode must be enabled or disabled")
+	}
+	if math.IsNaN(v.CompactAt) || math.IsInf(v.CompactAt, 0) || v.CompactAt < 0 || v.CompactAt >= 1 {
+		return errors.New("compact_at must be zero (default midpoint) or in (0,1)")
+	}
+	if v.CompactWindow != "" {
+		if d, err := time.ParseDuration(v.CompactWindow); err != nil || d <= 0 || d > time.Hour {
+			return errors.New("compact_window must be positive and at most 1h")
+		}
+	}
+	if v.RequestTraceEvery < 0 || v.MaxRequestSamples < 0 || v.MaxRequestSamples > 1000000 {
+		return errors.New("invalid request trace interval/capacity (maximum 1000000 samples)")
+	}
+	if v.Scenario != "concurrent-compact" && (v.CompactMode != "" || v.CompactAt != 0 || v.CompactWindow != "" || v.RequestTraceEvery != 0 || v.MaxRequestSamples != 0) {
+		return errors.New("compact controls and request traces require concurrent-compact")
+	}
+	if v.RequestTraceEvery == 0 && v.MaxRequestSamples != 0 {
+		return errors.New("max_request_samples requires request_trace_every")
+	}
+	if v.RequestTraceEvery > 0 {
+		// Ceil per worker, summed. Reserve enough for the complete phase so a
+		// short Compact cannot silently fall outside a truncated trace.
+		if v.Workers < 1 || v.Workers > 1024 || v.Operations < 1 {
+			return errors.New("request tracing requires valid workers and operations")
+		}
+		need := 0
+		for w := 0; w < v.Workers; w++ {
+			n := v.Operations / v.Workers
+			if w < v.Operations%v.Workers {
+				n++
+			}
+			need += n / v.RequestTraceEvery
+			if n%v.RequestTraceEvery != 0 {
+				need++
+			}
+		}
+		if v.MaxRequestSamples < need {
+			return fmt.Errorf("max_request_samples must be at least %d to retain the whole phase", need)
+		}
+	}
 	if v.Capacity < 1 || v.Capacity > 100_000_000 || v.KeySpace < v.Capacity {
 		return errors.New("capacity must be 1..100000000, key_space >= capacity")
 	}
@@ -241,8 +323,12 @@ func (v Case) Validate() error {
 	if v.Scenario == "concurrent-compact" && (v.Operations/v.Workers < 2 || v.LatencySampleEvery == 0) {
 		return errors.New("concurrent-compact requires operations >= 2*workers and latency_sample_every > 0")
 	}
-	if d, err := time.ParseDuration(v.SampleInterval); err != nil || d < 0 || (d > 0 && d < time.Millisecond) {
+	sampleInterval, err := time.ParseDuration(v.SampleInterval)
+	if err != nil || sampleInterval < 0 || (sampleInterval > 0 && sampleInterval < time.Millisecond) {
 		return errors.New("sample_interval must be 0 or at least 1ms")
+	}
+	if v.SampleCacheStats && (sampleInterval == 0 || v.Scenario == "footprint") {
+		return errors.New("sample_cache_stats requires periodic sampling in a non-footprint scenario")
 	}
 	if v.MaxSamples < 1 || v.MaxSamples > 100000 {
 		return errors.New("max_samples must be 1..100000")

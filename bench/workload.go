@@ -97,6 +97,11 @@ type mixedTask struct {
 	results                        []opCounts
 	errs                           []error
 	compactionStart, compactionEnd time.Time
+	origin, phaseStart, phaseEnd   time.Time
+	compactionExecuted             bool
+	entriesBefore, entriesAfter    int
+	traces                         [][]RequestObservation
+	traceDropped                   []uint64
 }
 
 // Preparation happens before phase snapshots, so goroutine startup is not timed.
@@ -105,7 +110,8 @@ func prepareMixed(cache Cache, j Job, n int, stream uint64) *mixedTask {
 }
 
 func prepareMixedTask(cache Cache, j Job, n int, stream uint64, compact bool) *mixedTask {
-	t := &mixedTask{start: make(chan struct{}), done: make(chan struct{}), results: make([]opCounts, j.Case.Workers), errs: make([]error, j.Case.Workers)}
+	t := &mixedTask{start: make(chan struct{}), done: make(chan struct{}), results: make([]opCounts, j.Case.Workers), errs: make([]error, j.Case.Workers), origin: time.Now(), traces: make([][]RequestObservation, j.Case.Workers), traceDropped: make([]uint64, j.Case.Workers)}
+	t.compactionExecuted = compact && j.Case.CompactMode != "disabled"
 	var triggerCompaction func()
 	var compactDone chan struct{}
 	if compact {
@@ -122,10 +128,14 @@ func prepareMixedTask(cache Cache, j Job, n int, stream uint64, compact bool) *m
 			defer close(compactDone)
 			close(ready)
 			<-trigger
+			t.entriesBefore = cache.Stats().Entries
 			t.compactionStart = time.Now()
 			close(started)
-			cache.Compact()
+			if t.compactionExecuted {
+				cache.Compact()
+			}
 			t.compactionEnd = time.Now()
+			t.entriesAfter = cache.Stats().Entries
 		}()
 		<-ready
 	}
@@ -137,11 +147,30 @@ func prepareMixedTask(cache Cache, j Job, n int, stream uint64, compact bool) *m
 		if w < n%j.Case.Workers {
 			count++
 		}
-		go func(w, count int) {
+		workerCache := cache
+		if group, ok := cache.(workerCaches); ok {
+			workerCache = group.ForWorker(w)
+		}
+		if every := j.Case.RequestTraceEvery; every > 0 {
+			need := count / every
+			if count%every != 0 {
+				need++
+			}
+			budget := j.Case.MaxRequestSamples / j.Case.Workers
+			if w < j.Case.MaxRequestSamples%j.Case.Workers {
+				budget++
+			}
+			t.traces[w] = make([]RequestObservation, 0, min(need, budget))
+		}
+		go func(w, count int, workerCache Cache) {
 			defer done.Done()
 			compactAt := -1
 			if compact && w == 0 {
-				compactAt = count / 2
+				fraction := j.Case.CompactAt
+				if fraction == 0 {
+					fraction = .5
+				}
+				compactAt = min(count-1, int(float64(count)*fraction))
 				// Also release the compactor on an early Put error.
 				defer triggerCompaction()
 			}
@@ -151,6 +180,10 @@ func prepareMixedTask(cache Cache, j Job, n int, stream uint64, compact bool) *m
 			nextSample := -1
 			if sampleEvery > 0 {
 				nextSample = int(mix64(seed^0x29f1c3) % uint64(sampleEvery))
+			}
+			traceEvery, nextTrace := j.Case.RequestTraceEvery, -1
+			if traceEvery > 0 {
+				nextTrace = int(mix64(seed^0xaad319) % uint64(traceEvery))
 			}
 			out := &t.results[w]
 			out.checksum = seed
@@ -164,29 +197,47 @@ func prepareMixedTask(cache Cache, j Job, n int, stream uint64, compact bool) *m
 				isRead := rng.Intn(100) < j.Case.ReadPercent
 				key := MakeKey(id, j.Case.KeyKind)
 				sampled := i == nextSample
+				traced := i == nextTrace
 				var then time.Time
-				if sampled {
+				if sampled || traced {
 					then = time.Now()
+				}
+				if sampled {
 					nextSample += sampleEvery
 				}
+				if traced {
+					nextTrace += traceEvery
+				}
+				hit := false
 				if isRead {
-					if cache.Get(key) {
+					hit = workerCache.Get(key)
+					if hit {
 						out.hits++
 					}
 					out.reads++
 				} else {
-					if err := cache.Put(key, id); err != nil {
+					if err := workerCache.Put(key, id); err != nil {
 						t.errs[w] = err
 						return
 					}
 					out.writes++
 				}
-				if sampled {
-					ns := uint64(time.Since(then).Nanoseconds())
-					if isRead {
-						out.get.add(ns)
-					} else {
-						out.put.add(ns)
+				if sampled || traced {
+					ended := time.Now()
+					if traced {
+						if len(t.traces[w]) < cap(t.traces[w]) {
+							t.traces[w] = append(t.traces[w], RequestObservation{StartElapsedNS: then.Sub(t.origin).Nanoseconds(), EndElapsedNS: ended.Sub(t.origin).Nanoseconds(), Read: isRead, Hit: hit})
+						} else {
+							t.traceDropped[w]++
+						}
+					}
+					if sampled {
+						ns := uint64(ended.Sub(then).Nanoseconds())
+						if isRead {
+							out.get.add(ns)
+						} else {
+							out.put.add(ns)
+						}
 					}
 				}
 				tag := uint64(0)
@@ -196,7 +247,7 @@ func prepareMixedTask(cache Cache, j Job, n int, stream uint64, compact bool) *m
 				out.checksum = bits.RotateLeft64(out.checksum, 7) ^ mix64(id^(tag<<63)^uint64(i))
 				out.operations++
 			}
-		}(w, count)
+		}(w, count, workerCache)
 	}
 	ready.Wait()
 	go func() {
@@ -209,8 +260,10 @@ func prepareMixedTask(cache Cache, j Job, n int, stream uint64, compact bool) *m
 	return t
 }
 func (t *mixedTask) run() (opCounts, error) {
+	t.phaseStart = time.Now()
 	close(t.start)
 	<-t.done
+	t.phaseEnd = time.Now()
 	var total opCounts
 	for i := range t.results {
 		if t.errs[i] != nil {

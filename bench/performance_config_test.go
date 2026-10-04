@@ -19,8 +19,9 @@ func loadPerformanceExample(t *testing.T, name string) Config {
 // remove repetitions or a comparison arm from the published experiment matrix.
 func TestPerformanceExampleMatrices(t *testing.T) {
 	for name, wantJobs := range map[string]int{
-		"performance": 30, "calibration": 60, "footprint": 120,
+		"performance": 30, "calibration": 150, "footprint": 120,
 		"reclaim-study": 90, "scalability": 90, "pressure": 180, "study": 360,
+		"topology-study": 180, "pressure-control": 90, "compact-window": 60,
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := loadPerformanceExample(t, name)
@@ -34,7 +35,7 @@ func TestPerformanceExampleMatrices(t *testing.T) {
 				t.Fatalf("got %d jobs, want %d", got, wantJobs)
 			}
 			for _, v := range c.Cases {
-				if v.LatencySampleEvery == 0 || v.Scenario == "footprint" {
+				if v.LatencySampleEvery == 0 || v.Scenario == "footprint" || v.ReadPercent == 100 {
 					continue
 				}
 				// This is the expected count under the requested operation mix,
@@ -50,21 +51,63 @@ func TestPerformanceExampleMatrices(t *testing.T) {
 
 func TestCalibrationChangesOnlyInstrumentation(t *testing.T) {
 	c := loadPerformanceExample(t, "calibration")
-	if len(c.Cases) != 2 {
-		t.Fatalf("got %d calibration arms, want 2", len(c.Cases))
+	if len(c.Cases) != 5 {
+		t.Fatalf("got %d calibration arms, want 5", len(c.Cases))
 	}
-	off, on := c.Cases[0], c.Cases[1]
-	if off.SampleInterval != "0" || off.LatencySampleEvery != 0 {
-		t.Fatal("instrumentation-off still enables periodic sampling or request timing")
+	base := c.Cases[0]
+	wantRuntime := []bool{false, false, true, false, true}
+	wantTiming := []bool{false, false, false, true, true}
+	for i, arm := range c.Cases {
+		if arm.RetainSampleBuffer != (i != 0) || (arm.SampleInterval != "0") != wantRuntime[i] || (arm.LatencySampleEvery != 0) != wantTiming[i] {
+			t.Errorf("wrong instrumentation for calibration arm %d: %+v", i, arm)
+		}
+		arm.Name, arm.RetainSampleBuffer = base.Name, base.RetainSampleBuffer
+		arm.SampleInterval, arm.LatencySampleEvery = base.SampleInterval, base.LatencySampleEvery
+		if arm != base {
+			t.Errorf("arm %d changes workload settings: %+v", i, arm)
+		}
 	}
-	if on.SampleInterval == "0" || on.LatencySampleEvery == 0 {
-		t.Fatal("instrumentation-on does not enable both periodic sampling and request timing")
+}
+
+func TestDiagnosticControlsPreserveInputs(t *testing.T) {
+	topology := loadPerformanceExample(t, "topology-study")
+	base := topology.Cases[0]
+	for _, c := range topology.Cases {
+		c.Name, c.CacheMode, c.Workers = base.Name, base.CacheMode, base.Workers
+		if c != base {
+			t.Errorf("topology control changes workload: %+v", c)
+		}
 	}
-	off.Name = on.Name
-	off.SampleInterval = on.SampleInterval
-	off.LatencySampleEvery = on.LatencySampleEvery
-	if off != on {
-		t.Fatalf("calibration arms differ in workload or allocation settings:\noff: %+v\non:  %+v", off, on)
+	harness := loadPerformanceExample(t, "harness-control")
+	if len(harness.Backends) != 1 || len(harness.Jobs()) != 30 {
+		t.Fatal("harness controls should not duplicate identical work under backend labels")
+	}
+	for _, c := range harness.Cases {
+		if c.CacheMode != "harness" {
+			t.Fatal("unlabelled harness control")
+		}
+	}
+	pressure := loadPerformanceExample(t, "pressure-control")
+	for _, c := range pressure.Cases {
+		if c.KeySpace != 400000 || !c.SampleCacheStats {
+			t.Fatalf("pressure controls must retain key space and observe retention: %+v", c)
+		}
+	}
+	compact := loadPerformanceExample(t, "compact-window")
+	a, b := compact.Cases[0], compact.Cases[1]
+	if a.CompactMode != "disabled" || b.CompactMode != "enabled" || a.ReadPercent != 100 || a.RequestTraceEvery == 0 {
+		t.Fatal("compact controls require read-only matched state and request traces")
+	}
+	a.Name, a.CompactMode = b.Name, b.CompactMode
+	if a != b {
+		t.Fatal("compact controls change settings other than the Compact call")
+	}
+	for _, name := range []string{"profiling", "profiling-arena", "profiling-arena-fill"} {
+		for _, c := range loadPerformanceExample(t, name).Cases {
+			if c.Profile == "" || c.ProfilePhase == "" {
+				t.Errorf("%s has an unprofiled diagnostic arm", name)
+			}
+		}
 	}
 }
 

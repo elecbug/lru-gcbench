@@ -31,6 +31,9 @@ type Aggregate struct {
 	Case             string                  `json:"case"`
 	Runtime          string                  `json:"runtime"`
 	Phase            string                  `json:"phase"`
+	CacheMode        string                  `json:"cache_mode,omitempty"`
+	Profile          string                  `json:"profile,omitempty"`
+	Workers          int                     `json:"workers,omitempty"`
 	EnvironmentKey   string                  `json:"environment_key"`
 	MixedEnvironment bool                    `json:"mixed_environment"`
 	Replicates       []RepeatSeed            `json:"replicates"`
@@ -77,13 +80,24 @@ func phaseMetrics(r Result, p Phase) map[string]float64 {
 		"gc_cycles_delta": float64(sub(b.GCCycles, a.GCCycles)), "gc_forced_cycles_delta": float64(sub(b.GCForcedCycles, a.GCForcedCycles)),
 		"gc_cpu_delta_seconds": math.Max(0, b.GCCPUSeconds-a.GCCPUSeconds), "gc_assist_delta_seconds": math.Max(0, b.GCAssistCPUSeconds-a.GCAssistCPUSeconds),
 		"cache_entries_end": float64(p.End.Cache.Entries), "pressure_evictions_delta": float64(sub(p.End.Cache.EvictionsPressure, p.Start.Cache.EvictionsPressure)),
-		"capacity_evictions_delta":     float64(sub(p.End.Cache.EvictionsCapacity, p.Start.Cache.EvictionsCapacity)),
-		"pressure_compactions_delta":   float64(sub(p.End.Cache.CompactionsPressureTier1+p.End.Cache.CompactionsPressureTier2, p.Start.Cache.CompactionsPressureTier1+p.Start.Cache.CompactionsPressureTier2)),
-		"explicit_compactions_delta":   float64(sub(p.End.Cache.CompactionsExplicit, p.Start.Cache.CompactionsExplicit)),
-		"auto_slack_compactions_delta": float64(sub(p.End.Cache.CompactionsAutoSlack, p.Start.Cache.CompactionsAutoSlack)),
+		"capacity_evictions_delta":         float64(sub(p.End.Cache.EvictionsCapacity, p.Start.Cache.EvictionsCapacity)),
+		"pressure_compactions_delta":       float64(sub(p.End.Cache.CompactionsPressureTier1+p.End.Cache.CompactionsPressureTier2, p.Start.Cache.CompactionsPressureTier1+p.Start.Cache.CompactionsPressureTier2)),
+		"pressure_tier1_compactions_delta": float64(sub(p.End.Cache.CompactionsPressureTier1, p.Start.Cache.CompactionsPressureTier1)),
+		"pressure_tier2_compactions_delta": float64(sub(p.End.Cache.CompactionsPressureTier2, p.Start.Cache.CompactionsPressureTier2)),
+		"explicit_compactions_delta":       float64(sub(p.End.Cache.CompactionsExplicit, p.Start.Cache.CompactionsExplicit)),
+		"auto_slack_compactions_delta":     float64(sub(p.End.Cache.CompactionsAutoSlack, p.Start.Cache.CompactionsAutoSlack)),
 	}
 	if p.DurationNS > 0 {
 		out["workload_ops_per_s"] = float64(p.Operations) * 1e9 / float64(p.DurationNS)
+		if p.Reads > 0 {
+			out["read_hits_per_s"] = float64(p.Hits) * 1e9 / float64(p.DurationNS)
+			out["read_misses_per_s"] = float64(sub(p.Reads, p.Hits)) * 1e9 / float64(p.DurationNS)
+		}
+	}
+	if r.Job.Backend == "arena" {
+		out["arena_live_nodes_end"] = float64(p.End.Cache.ArenaLiveNodes)
+		out["arena_free_nodes_end"] = float64(p.End.Cache.ArenaFreeNodes)
+		out["arena_unallocated_capacity_end"] = float64(p.End.Cache.ArenaUnallocatedCap)
 	}
 	addNormalizedMetrics(out, r, p)
 	if p.Reads > 0 {
@@ -137,6 +151,16 @@ func phaseMetrics(r Result, p Phase) map[string]float64 {
 		out["sampled_peak_rss_bytes"] = float64(peakRSS)
 	}
 	addCoverageMetrics(out, r, p)
+	addWindowMetrics(out, p)
+	if r.Job.Case.CacheMode == "harness" {
+		// This control performs bookkeeping and payload construction without a
+		// real cache. Synthetic outcomes cannot establish cache utility.
+		for key := range out {
+			if key == "hit_rate" || key == "read_hits_per_s" || key == "read_misses_per_s" || key == "cache_entries_end" || strings.HasPrefix(key, "arena_") || strings.Contains(key, "evictions") || strings.Contains(key, "compactions_delta") || key == "post_gc_heap_delta_per_entry_bytes" {
+				delete(out, key)
+			}
+		}
+	}
 	return out
 }
 func AggregateResults(results []Result) []Aggregate {
@@ -152,6 +176,7 @@ func AggregateResults(results []Result) []Aggregate {
 			g := groups[key]
 			if g == nil {
 				g = &group{a: Aggregate{Key: key, Backend: r.Job.Backend, Case: r.Job.Case.Name, Runtime: r.Job.Runtime.Name, Phase: p.Name, EnvironmentKey: EnvironmentKey(r.Environment), Metrics: map[string]Distribution{}}, values: map[string][]float64{}, warnings: map[string]int{}}
+				g.a.CacheMode, g.a.Profile, g.a.Workers = r.Job.Case.CacheMode, r.Job.Case.Profile, r.Job.Case.Workers
 				groups[key] = g
 			}
 			if g.a.EnvironmentKey != EnvironmentKey(r.Environment) {
@@ -250,13 +275,13 @@ func Report(dir string) error {
 		return err
 	}
 	w := csv.NewWriter(f)
-	header := []string{"group_key", "backend", "case", "runtime", "phase", "replicates"}
+	header := []string{"group_key", "backend", "case", "runtime", "phase", "replicates", "cache_mode", "profile", "workers"}
 	for _, k := range names {
 		header = append(header, k+".median", k+".min", k+".max", k+".n", k+".median_ci.lower", k+".median_ci.upper", k+".median_ci.coverage")
 	}
 	_ = w.Write(header)
 	for _, a := range groups {
-		row := []string{a.Key, a.Backend, a.Case, a.Runtime, a.Phase, strconv.Itoa(len(a.Replicates))}
+		row := []string{a.Key, a.Backend, a.Case, a.Runtime, a.Phase, strconv.Itoa(len(a.Replicates)), a.CacheMode, a.Profile, strconv.Itoa(a.Workers)}
 		for _, k := range names {
 			v, ok := a.Metrics[k]
 			if ok {
@@ -284,6 +309,9 @@ func Report(dir string) error {
 	if err = writeTraceCSV(filepath.Join(dir, "samples.csv"), results); err != nil {
 		return err
 	}
+	if err = writeDiagnosticCSVs(dir, results); err != nil {
+		return err
+	}
 	markdown := renderMarkdown(m, results, groups)
 	if err = os.WriteFile(filepath.Join(dir, "report.md"), []byte(markdown), 0644); err != nil {
 		return err
@@ -296,7 +324,7 @@ func writeTraceCSV(path string, results []Result) error {
 		return err
 	}
 	w := csv.NewWriter(f)
-	_ = w.Write([]string{"job_id", "backend", "case", "runtime", "repeat", "phase", "elapsed_seconds", "heap_objects_bytes", "heap_live_bytes", "heap_scan_bytes", "runtime_managed_bytes", "pressure_active_bytes", "rss_bytes", "gc_cycles", "gc_forced_cycles", "gc_cpu_seconds", "gc_assist_cpu_seconds"})
+	_ = w.Write([]string{"job_id", "backend", "case", "runtime", "repeat", "phase", "elapsed_seconds", "heap_objects_bytes", "heap_live_bytes", "heap_scan_bytes", "runtime_managed_bytes", "pressure_active_bytes", "rss_bytes", "gc_cycles", "gc_forced_cycles", "gc_cpu_seconds", "gc_assist_cpu_seconds", "cache_elapsed_seconds", "cache_entries", "pressure_evictions", "pressure_compactions"})
 	for _, r := range results {
 		for _, s := range r.Samples {
 			phase := "boundary"
@@ -310,7 +338,14 @@ func writeTraceCSV(path string, results []Result) error {
 			if s.RSSAvailable {
 				rss = strconv.FormatUint(s.RSSBytes, 10)
 			}
-			_ = w.Write([]string{r.Job.ID, r.Job.Backend, r.Job.Case.Name, r.Job.Runtime.Name, strconv.Itoa(r.Job.Repeat), phase, number(float64(s.ElapsedNS) / 1e9), strconv.FormatUint(s.HeapObjectsBytes, 10), strconv.FormatUint(s.HeapLiveBytes, 10), strconv.FormatUint(s.HeapScanBytes, 10), strconv.FormatUint(s.RuntimeManagedBytes, 10), strconv.FormatUint(s.PressureActiveBytes, 10), rss, strconv.FormatUint(s.GCCycles, 10), strconv.FormatUint(s.GCForcedCycles, 10), number(s.GCCPUSeconds), number(s.GCAssistCPUSeconds)})
+			cacheTime, entries, evictions, compactions := "", "", "", ""
+			if s.CacheObserved && r.Job.Case.CacheMode != "harness" {
+				cacheTime = number(float64(s.CacheElapsedNS) / 1e9)
+				entries = strconv.Itoa(s.CacheEntries)
+				evictions = strconv.FormatUint(s.PressureEvictions, 10)
+				compactions = strconv.FormatUint(s.PressureCompactions, 10)
+			}
+			_ = w.Write([]string{r.Job.ID, r.Job.Backend, r.Job.Case.Name, r.Job.Runtime.Name, strconv.Itoa(r.Job.Repeat), phase, number(float64(s.ElapsedNS) / 1e9), strconv.FormatUint(s.HeapObjectsBytes, 10), strconv.FormatUint(s.HeapLiveBytes, 10), strconv.FormatUint(s.HeapScanBytes, 10), strconv.FormatUint(s.RuntimeManagedBytes, 10), strconv.FormatUint(s.PressureActiveBytes, 10), rss, strconv.FormatUint(s.GCCycles, 10), strconv.FormatUint(s.GCForcedCycles, 10), number(s.GCCPUSeconds), number(s.GCAssistCPUSeconds), cacheTime, entries, evictions, compactions})
 		}
 	}
 	w.Flush()

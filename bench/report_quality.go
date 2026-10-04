@@ -71,7 +71,8 @@ func addCoverageMetrics(out map[string]float64, r Result, p Phase) {
 	out["job_dropped_samples"] = float64(r.DroppedSamples)
 	start, end := p.Start.Runtime.ElapsedNS, p.End.Runtime.ElapsedNS
 	times := []int64{start, end}
-	count, rssCount := 0, 0
+	count, rssCount, cacheCount := 0, 0, 0
+	minEntries, maxEntries := 0, 0
 	for _, s := range r.Samples {
 		if s.ElapsedNS >= start && s.ElapsedNS <= end {
 			count++
@@ -79,6 +80,13 @@ func addCoverageMetrics(out map[string]float64, r Result, p Phase) {
 			if s.RSSAvailable {
 				rssCount++
 			}
+		}
+		if s.CacheObserved && s.CacheElapsedNS >= start && s.CacheElapsedNS <= end && r.Job.Case.CacheMode != "harness" {
+			if cacheCount == 0 || s.CacheEntries < minEntries {
+				minEntries = s.CacheEntries
+			}
+			maxEntries = max(maxEntries, s.CacheEntries)
+			cacheCount++
 		}
 	}
 	sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
@@ -89,6 +97,11 @@ func addCoverageMetrics(out map[string]float64, r Result, p Phase) {
 	out["periodic_sample_count"] = float64(count)
 	out["periodic_rss_sample_count"] = float64(rssCount)
 	out["periodic_max_gap_ms"] = float64(maxGap) / 1e6
+	out["periodic_cache_sample_count"] = float64(cacheCount)
+	if cacheCount > 0 {
+		out["sampled_cache_entries_min"] = float64(minEntries)
+		out["sampled_cache_entries_max"] = float64(maxEntries)
+	}
 }
 
 func requestPhase(name string) bool {
@@ -97,6 +110,33 @@ func requestPhase(name string) bool {
 
 func phaseQualityWarnings(r Result, p Phase) []string {
 	var warnings []string
+	if r.Job.Case.Profile != "" {
+		warnings = append(warnings, "PROFILED DIAGNOSTIC: profiler overhead changes timing and allocation behavior; do not use this run for ordinary throughput rankings.")
+	}
+	switch r.Job.Case.CacheMode {
+	case "harness":
+		warnings = append(warnings, "HARNESS CONTROL: no real cache is used; backend labels do not identify measured backend behavior, and cache utility metrics are omitted.")
+	case "independent":
+		warnings = append(warnings, "INDEPENDENT CACHES: capacity is per request worker; process memory and retained entries cover all worker caches, not a shared cache with the same total capacity.")
+	}
+	if r.Job.Case.SampleCacheStats {
+		warnings = append(warnings, "CACHE OBSERVER ENABLED: periodic Cache.Stats calls may acquire cache locks and perturb contention; compare with an otherwise matched observer-off control.")
+	}
+	if p.RequestTraceDropped > 0 {
+		warnings = append(warnings, "Request trace capacity was exhausted; window distributions can omit late requests and window throughput estimates are omitted.")
+	}
+	for _, window := range p.RequestWindows {
+		if window.Clipped {
+			warnings = append(warnings, "A request-analysis window was clipped by phase boundaries; compare its recorded duration before interpreting rates or tails.")
+			break
+		}
+	}
+	for _, window := range p.RequestWindows {
+		if (window.Reads > 0 && window.GetLatency.Samples < 1000) || (window.Writes > 0 && window.PutLatency.Samples < 1000) || window.Samples == 0 {
+			warnings = append(warnings, "A request-analysis window has fewer than 1000 Get/Put samples (or no samples); window p99 and sparse-sample rates are diagnostic estimates.")
+			break
+		}
+	}
 	if requestPhase(p.Name) {
 		if p.DurationNS < 1e9 {
 			warnings = append(warnings, "Measured workload is shorter than 1 second; scheduling and startup effects may dominate.")
@@ -114,7 +154,7 @@ func phaseQualityWarnings(r Result, p Phase) []string {
 				warnings = append(warnings, "No GC cycles observed; this phase does not establish GC behavior.")
 			}
 			if pauseEvents(p.GCPauses) < 100 {
-				warnings = append(warnings, "GC-pause p99 has fewer than 100 pause events (or is unavailable); pause events are not GC cycles.")
+				warnings = append(warnings, "GC-pause p99 has fewer than 100 pause events (or is unavailable); treat it as a secondary diagnostic. Pause events are not GC cycles, and 100 events is not a precision guarantee.")
 			}
 		}
 	}
