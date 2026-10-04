@@ -10,6 +10,18 @@ The [diagnostic follow-up](validation/DIAGNOSTICS-20261004.md) completed 124 mai
 
 The completed [732-job repeated study](validation/REPEATED-20261004.md) adds ten repetitions per performance condition and six per profile condition, matched-seed effect intervals, explicit pressure-observer controls and complete Compact request traces. Saved scripts and raw/profile evidence accompany each result.
 
+## Run the complete workflow
+
+From `lru-gcbench/`, run:
+
+```sh
+make benchmark RUN_ID=20261005-01
+```
+
+This validates inputs, runs Go race/vet checks and analyzer self-tests, builds a fresh controller and worker, runs the 18-job smoke check, freezes the comparison plan, executes the 732-job repeated study, and generates both statistical and profile analyses. Stages remain sequential even with `make -j`. It requires Make, Bash, Python 3.11+, Git and a Go toolchain compatible with the upstream checkout; see the version requirements below. The command creates `bin/` automatically.
+
+The default upstream path is `../go-lru`; add `UPSTREAM_REPO=/path/to/go-lru` to select another checkout. The upstream working tree must be clean. Choose a fresh `RUN_ID` each time: existing binaries or result paths are refused. IDs must start with an ASCII letter or digit and contain only letters, digits, dots, underscores or hyphens. Results go to `results/smoke-<RUN_ID>` and `results/repeated-<RUN_ID>`, with the pipeline log, executed script, commands and status in `results/workflow-<RUN_ID>`. See the [workflow artifact paths](docs/DIAGNOSTICS.md#freeze-and-run-the-repeated-study) and the manual smoke commands below.
+
 ## Quick start
 
 Run these commands from `lru-gcbench/`, with an existing checkout at `../go-lru`.

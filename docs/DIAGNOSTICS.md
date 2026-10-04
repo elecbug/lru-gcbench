@@ -42,7 +42,21 @@ Each suite additionally contains the recorded wrapper, original command, configu
 
 ## Freeze and run the repeated study
 
-`scripts/run-repeated-study.sh` prepares the repeated performance/profile protocol separately from execution:
+For the complete workflow, run `make benchmark RUN_ID=20261005-01` from `lru-gcbench/`. `UPSTREAM_REPO` defaults to `../go-lru`; set `UPSTREAM_REPO=/path/to/go-lru` to choose another clean upstream checkout. The command validates the run identifier and refuses existing binary/result paths. Use a new identifier for each attempt.
+
+The workflow runs Go race/vet checks and analyzer self-tests, builds unique controller/worker binaries, runs 18 smoke jobs, prepares the study and expanded comparison plan, executes all 732 study jobs and profile extraction, then runs both analyzers. These stages execute sequentially even when Make is invoked with `-j`.
+
+| Artifact | Path |
+|---|---|
+| Controller | `bin/lrugcbench-<RUN_ID>` |
+| Worker | `bin/worker-<RUN_ID>` |
+| Smoke results and replay scripts | `results/smoke-<RUN_ID>/` |
+| Repeated measurements, profiles and analyses | `results/repeated-<RUN_ID>/` |
+| Pipeline log, executed script, commands and status | `results/workflow-<RUN_ID>/` |
+
+After preflight succeeds, the workflow saves `executed-workflow.sh`, `Makefile`, `executed-command.sh`, `commands.sh`, `workflow.log` and `workflow-exit-status.txt` in its pipeline directory. Exit status zero means the entire workflow, including both analyzers, completed. These records complement the per-suite execution and replay artifacts. A failed stage stops the workflow and preserves its recorded diagnostics; its output identifier cannot be reused. No timed suites or post-processing run concurrently within this command. Preserve both binaries at their recorded paths for later integrity checks and profile analysis.
+
+To run the study stages manually with existing binaries, `scripts/run-repeated-study.sh` separates preparation from execution:
 
 ```sh
 ./scripts/run-repeated-study.sh prepare ./bin/lrugcbench "bin/worker-$run_id" \
