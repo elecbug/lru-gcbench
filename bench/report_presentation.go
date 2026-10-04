@@ -75,7 +75,9 @@ func renderMarkdown(m Manifest, results []Result, groups []Aggregate) string {
 	fmt.Fprintf(&b, "%s\n\nFull distributions and median intervals are in summary.json, summary.csv and the offline report.html. Missing metrics appear as —.\n\n", intervalExplanation)
 	for _, t := range reportTables(groups) {
 		fmt.Fprintf(&b, "## %s\n\n", t.Title)
-		b.WriteString("| " + strings.Join(t.Headers, " | ") + " |\n|")
+		b.WriteString("| ")
+		b.WriteString(strings.Join(t.Headers, " | "))
+		b.WriteString(" |\n|")
 		for range t.Headers {
 			b.WriteString("---|")
 		}
@@ -83,7 +85,9 @@ func renderMarkdown(m Manifest, results []Result, groups []Aggregate) string {
 		for _, row := range t.Rows {
 			b.WriteString("|")
 			for _, cell := range row {
-				b.WriteString(" " + mdEscape(cell) + " |")
+				b.WriteString(" ")
+				b.WriteString(mdEscape(cell))
+				b.WriteString(" |")
 			}
 			b.WriteString("\n")
 		}
