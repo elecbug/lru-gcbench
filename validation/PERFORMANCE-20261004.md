@@ -1,8 +1,6 @@
 # Performance study — 2026-10-04
 
-> Artifact retention update: The earlier `results/performance-20261004/` directory and its obsolete binaries were removed during artifact cleanup on 2026-10-05. This report remains a historical summary; links to those removed raw artifacts no longer resolve. The [latest 732-job study](REPEATED-20261004.md), its raw results and its required binaries remain available.
-
-This record separates pilot measurements, functional validation and repeated performance experiments. Generated logs, scripts and raw results live under [`results/performance-20261004/`](../results/performance-20261004/) and are excluded from Git. Artifact links resolve only in a workspace containing that run.
+This historical record distinguishes pilot measurements, functional validation and repeated performance experiments. The subsequent [732-job study](REPEATED-20261004.md) documents the later repeated comparisons and profiling work.
 
 ## Completed experiment matrix
 
@@ -17,15 +15,13 @@ All six repeated harness suites completed **450/450 measurement jobs** successfu
 | [Pressure](#memory-pressure) | 60/60 | 64 MiB profile only; reclamation off/on; 2 million operations |
 | [Reclamation](#deletion-and-compaction) | 90/90 | Individual/prefix deletion and concurrent Compact; 10 million operations |
 
-The [baseline/calibration pilot](../results/performance-20261004/pilot/manifest.json) and [pressure pilot](../results/performance-20261004/pressure-pilot/manifest.json) each completed 6/6 jobs, separately from the 450 repeated-study jobs. Four upstream microbenchmark invocations also completed successfully, recording **130 measurements across 13 selected benchmark cases**. The calibration launcher exception described below occurred after its measurements completed.
+The baseline/calibration pilot and pressure pilot each completed 6/6 jobs, separately from the 450 repeated-study jobs. Four upstream microbenchmark invocations also completed successfully, recording **130 measurements across 13 selected benchmark cases**. The calibration launcher exception described below occurred after its measurements completed.
 
-The [initial study script](../results/performance-20261004/run-study.sh) and [resume script](../results/performance-20261004/resume-study.sh) record suite order. Each suite additionally preserves its own executed launcher, exact benchmark command, resolved configuration and replay script.
-
-The strict [combined report](../results/performance-20261004/STUDY.md) is **COMPLETE**; [study-summary.csv](../results/performance-20261004/study-summary.csv) includes both harness and microbenchmark medians. The [integrity report](../results/performance-20261004/integrity-check.json), produced by the saved [verification script](../results/performance-20261004/verify-study.py), passed checks for all **462 harness jobs**, recorded configurations, source/binary hashes and matched input operation/read/write/checksum tuples. Hits remain measured outcomes and are not required to match. The saved [analysis script](../results/performance-20261004/analysis-script.py) and its exact invocation in `STUDY.md` reproduce the combined analysis.
+Integrity checks passed for all **462 harness jobs**, including the 450 repeated-study jobs and 12 pilot jobs. The checks validated configurations, source and worker identities, and matched operation/read/write/checksum tuples. Hits remained measured outcomes and were not required to match.
 
 ## Build and environment
 
-The study uses the actual `google/go-lru` backends, built from a clean checkout. The [pilot manifest](../results/performance-20261004/pilot/manifest.json) records:
+The study used the actual `google/go-lru` backends, built from a clean checkout, with the following provenance:
 
 | Field | Value |
 |---|---|
@@ -38,23 +34,21 @@ The study uses the actual `google/go-lru` backends, built from a clean checkout.
 | Kernel | `7.0.0-28-generic` |
 | Backends | `map`, `radix`, `arena` |
 
-The controller and worker were built after successful `go test -race ./...` and `go vet ./...`. The [executed validation/build script](../results/performance-20261004/validate-build.sh), [race log](../results/performance-20261004/test-race.log), [vet log](../results/performance-20261004/vet.log) and [worker build log](../results/performance-20261004/build.log) are preserved. The vet log is empty on success.
+The controller and worker were built after successful `go test -race ./...` and `go vet ./...` checks.
 
-These are sequential runs on one host. Runtime settings are explicit in each saved configuration; CPU frequency, temperature and unrelated host activity are not controlled by the harness. The recorded toolchain and hashes identify this build, not later source edits.
+These are sequential runs on one host. Runtime settings are described below; CPU frequency, temperature and unrelated host activity are not controlled by the harness. The recorded toolchain and hashes identify this build, not later source edits.
 
 ## Pilot and final settings
 
-The [baseline/calibration pilot](../results/performance-20261004/pilot/report.html) completed 6/6 jobs: all three backends, instrumentation off/on, one repetition, 100,000 entries, a 200,000-key space, 256-byte values, 90% reads and 2,000,000 measured operations. GOMAXPROCS was 2, GOGC was 100, the Go memory limit was off and pressure reclamation was disabled. The fastest pilot completed approximately 4.01 million operations per second.
+The baseline/calibration pilot completed 6/6 jobs: all three backends, instrumentation off/on, one repetition, 100,000 entries, a 200,000-key space, 256-byte values, 90% reads and 2,000,000 measured operations. GOMAXPROCS was 2, GOGC was 100, the Go memory limit was off and pressure reclamation was disabled. The fastest pilot completed approximately 4.01 million operations per second.
 
 That pilot was used to choose a common **25,000,000 measured operations** for both final calibration and baseline configurations, targeting at least roughly five seconds on the fastest backend. Warmup remains 500,000 operations. All backends use the same operation count and 10 fresh-process repetitions. With sampling every 128 requests, this workload should collect approximately 19,531 Put observations per job on average; actual counts and phase durations determine the interpretation.
 
 Scalability and reclamation configurations use 10,000,000 mixed operations per job. Their different concurrency and phases make them separate experiments. Footprint has forced GC after fill/delete/Compact and does not use mixed-operation duration. The full pressure example includes an intentionally severe 32 MiB profile; it is not implied to have been run by the baseline pilot.
 
-The pilot's exact [executed script](../results/performance-20261004/pilot/executed-script.sh), [benchmark command](../results/performance-20261004/pilot/executed-command.sh), [effective configuration](../results/performance-20261004/pilot/config.json), [log](../results/performance-20261004/pilot/run.log) and [replay script](../results/performance-20261004/pilot/reproduce.sh) are stored beside its report. Every completed suite launched through the recorded wrapper has the same artifact set.
-
 ## Calibration
 
-The [calibration suite](../results/performance-20261004/calibration/report.html) completed all **60/60 measurement jobs**: 10 repetitions of instrumentation off/on for each backend, at 25,000,000 operations per job. Measured throughput medians were:
+The calibration suite completed all **60/60 measurement jobs**: 10 repetitions of instrumentation off/on for each backend, at 25,000,000 operations per job. Measured throughput medians were:
 
 | Backend | Instrumentation off, million ops/s | Instrumentation on, million ops/s |
 |---|---:|---:|
@@ -64,11 +58,11 @@ The [calibration suite](../results/performance-20261004/calibration/report.html)
 
 The median confidence intervals overlap widely. The higher on-case medians do **not** establish a beneficial speedup or zero instrumentation cost. The on case also retains a 10,000-slot runtime-sample buffer allocated and touched before baseline GC; the off case does not. That live memory can change the GC heap goal and scheduling even though its allocation is outside the timed delta. These measurements include the combined effects of timing, sampling, retained tracer memory and execution variability; they do not identify which caused the observed differences. Arena recorded fewer than 100 measured GC pause events in 3/10 off runs and 8/10 on runs, limiting GC-tail interpretation.
 
-There was a launcher exception after the controller successfully finished all 60 jobs: its shell script was edited while Bash waited for the controller, causing a syntax error when Bash resumed reading it. The original launcher source was restored from a byte-identical pilot snapshot, and the executed benchmark command was reconstructed from `command.json`; no measurements were rerun or altered. The [launcher note](../results/performance-20261004/calibration/launcher-note.txt) and [launcher exit status](../results/performance-20261004/calibration/launcher-exit-status.txt) preserve this distinction between successful measurements and launcher exit status 2. Later suites use the frozen wrapper via the [resume script](../results/performance-20261004/resume-study.sh).
+A launcher exception occurred after the controller successfully finished all 60 jobs. Editing the shell script while Bash waited for the controller caused a syntax error when execution resumed, producing launcher exit status 2. Measurement completion was checked separately; no measurements were rerun or altered. Later suites used a frozen launcher.
 
 ## Baseline
 
-The [baseline suite](../results/performance-20261004/baseline/report.html) completed **30/30 jobs**, using the common 100,000-entry, 256-byte, 90%-read configuration above. All measured phases lasted 6.4–18.3 seconds. The [saved summary](../results/performance-20261004/baseline/summary.json) reports:
+The baseline suite completed **30/30 jobs**, using the common 100,000-entry, 256-byte, 90%-read configuration above. All measured phases lasted 6.4–18.3 seconds. Measured medians were:
 
 | Backend | Median million ops/s | Throughput median interval, million ops/s | Allocated B/op | GC CPU ns/op |
 |---|---:|---:|---:|---:|
@@ -80,11 +74,9 @@ The intervals use the harness's order-statistic procedure with achieved coverage
 
 Every backend retained all 100,000 entries, recorded zero pressure evictions and had a median hit rate of approximately 50.00%. Median sampled-call counts were 175,748 Gets and 19,564.5 Puts per job, with no dropped periodic samples. Arena observed only 94–98 measured GC pause events per run, so all 10 runs retained the GC-p99 sample warning; map and radix had no measured-phase quality warnings. The lower measured GC CPU cost does not remove that limitation on GC-tail estimates.
 
-The [effective configuration](../results/performance-20261004/baseline/config.json), [executed launcher](../results/performance-20261004/baseline/executed-script.sh), [benchmark command](../results/performance-20261004/baseline/executed-command.sh), [run log](../results/performance-20261004/baseline/run.log) and [replay script](../results/performance-20261004/baseline/reproduce.sh) were recorded normally.
-
 ## Footprint
 
-The [footprint suite](../results/performance-20261004/footprint/report.html) completed **120/120 jobs**: 100,000 and 1,000,000 entries, scalar and 256-byte values, all three backends and 10 repetitions. Its forced-GC boundaries measure retained process memory separately from natural-GC workload throughput.
+The footprint suite completed **120/120 jobs**: 100,000 and 1,000,000 entries, scalar and 256-byte values, all three backends and 10 repetitions. Its forced-GC boundaries measure retained process memory separately from natural-GC workload throughput.
 
 For the **1,000,000-entry, 256-byte-value case**, fill retained exactly 1,000,000 entries; deleting 75% left exactly 250,000, and Compact preserved that count. Median results were:
 
@@ -96,11 +88,9 @@ For the **1,000,000-entry, 256-byte-value case**, fill retained exactly 1,000,00
 
 Bytes per entry subtract the pre-construction baseline; heap and scan columns are whole-process post-GC observations. Radix retained the least heap in this case. Arena's scan footprint was smaller, while its retained heap after deletion fell substantially only after Compact. Map also released retained heap after Compact. These results distinguish total retained heap from scannable heap; they do not establish a universal memory winner or isolate the cause of the separate baseline's GC CPU differences.
 
-The full [summary](../results/performance-20261004/footprint/summary.json), [configuration](../results/performance-20261004/footprint/config.json), [executed script](../results/performance-20261004/footprint/executed-script.sh) and [replay script](../results/performance-20261004/footprint/reproduce.sh) retain evidence for every footprint case.
-
 ## Concurrency
 
-The [scalability suite](../results/performance-20261004/scalability/report.html) completed **90/90 jobs**, with GOMAXPROCS fixed at 4 and 10,000,000 measured operations per job. Each cell below lists medians in **1 / 4 / 8 request-worker** order:
+The scalability suite completed **90/90 jobs**, with GOMAXPROCS fixed at 4 and 10,000,000 measured operations per job. Each cell below lists medians in **1 / 4 / 8 request-worker** order:
 
 | Backend | Throughput, million ops/s (1 / 4 / 8) | Sampled Put p99 upper bucket bound, µs (1 / 4 / 8) |
 |---|---:|---:|
@@ -112,11 +102,9 @@ Increasing request concurrency did not improve throughput for this shared-cache 
 
 Latency values summarize sampled per-run histogram bounds, not exact population quantiles or externally queued requests. The one-worker map and arena phases had median durations of approximately 3.7 and 4.3 seconds, respectively. All 90 runs retained the fewer-than-100-GC-pause-events warning, so this suite does not establish stable GC p99 estimates.
 
-See the [summary](../results/performance-20261004/scalability/summary.json), [configuration](../results/performance-20261004/scalability/config.json), [executed script](../results/performance-20261004/scalability/executed-script.sh) and [replay script](../results/performance-20261004/scalability/reproduce.sh) for full evidence.
-
 ## Memory pressure
 
-The [64 MiB pressure subset](../results/performance-20261004/pressure64/report.html) completed **60/60 jobs**: 200,000-entry capacity, a 400,000-key space, 256-byte values, 90% reads, 2,000,000 measured operations, GOMAXPROCS 2 and pressure reclamation off/on. Only the 64 MiB runtime profile was selected for this repeated study; the full example's 32 and 128 MiB profiles were not run here.
+The 64 MiB pressure subset completed **60/60 jobs**: 200,000-entry capacity, a 400,000-key space, 256-byte values, 90% reads, 2,000,000 measured operations, GOMAXPROCS 2 and pressure reclamation off/on. Only the 64 MiB runtime profile was selected for this repeated study; the full example's 32 and 128 MiB profiles were not run here.
 
 Each cell lists medians with pressure reclamation **off / on**:
 
@@ -130,11 +118,9 @@ Reclamation-on jobs recorded median pressure evictions of approximately 148,000�
 
 The off-case heap-object measurements exceed the configured 64 MiB soft limit, illustrating that `GOMEMLIMIT` does not impose a hard heap or RSS cap. These are end-of-phase object-space observations that can include uncollected garbage, not forced-GC retained-heap measurements. Measured phases lasted approximately 1.4–5.1 seconds. All arena-on and radix-on runs had fewer than 100 GC pause events; those GC-p99 warnings remain, even though no phase fell below the report's one-second threshold.
 
-The exact [subset configuration](../results/performance-20261004/pressure64/config.json), [summary](../results/performance-20261004/pressure64/summary.json), [executed script](../results/performance-20261004/pressure64/executed-script.sh) and [replay script](../results/performance-20261004/pressure64/reproduce.sh) preserve the selected conditions.
-
 ## Deletion and compaction
 
-The [reclamation suite](../results/performance-20261004/reclaim/report.html) completed **90/90 jobs**. Both sequential deletion cases started with 100,000 entries, removed 75,000 and retained 25,000 through the subsequent Compact call. Individual deletion makes 75,000 Delete calls; prefix deletion makes 12 DeletePrefix calls. They select different key subsets with the same survivor count. Median total durations were:
+The reclamation suite completed **90/90 jobs**. Both sequential deletion cases started with 100,000 entries, removed 75,000 and retained 25,000 through the subsequent Compact call. Individual deletion makes 75,000 Delete calls; prefix deletion makes 12 DeletePrefix calls. They select different key subsets with the same survivor count. Median total durations were:
 
 | Backend | Individual deletion, ms | Prefix deletion, ms | Sequential Compact after individual deletion, ms | Compact during requests, ms |
 |---|---:|---:|---:|---:|
@@ -144,9 +130,7 @@ The [reclamation suite](../results/performance-20261004/reclaim/report.html) com
 
 Prefix deletion completed sooner than the individual-delete loop for radix and arena in these selected cases; map's prefix deletion took longer. Compare elapsed time and removed entries rather than API calls per second across the two modes. The sequential Compact call runs before one-worker recovery, at 25,000 entries. The concurrent case starts its mixed phase at 25,000 entries, uses two request workers and regrows to 100,000 entries by the end, with Compact triggered inside that evolving workload. Its call duration therefore does not isolate the effect of contention at equal cache state.
 
-Whole-phase latency summaries include requests outside the single Compact interval, and periodic/request sampling may miss a brief stall. Some short deletion and Compact phases have no periodic observations; their memory peaks use boundary samples only. Every mixed recovery/concurrent run retains the fewer-than-100-GC-pause-events warning. Consult the recorded Compact interval and per-job charts before attributing a latency change to compaction.
-
-The [summary](../results/performance-20261004/reclaim/summary.json), [configuration](../results/performance-20261004/reclaim/config.json), [executed script](../results/performance-20261004/reclaim/executed-script.sh) and [replay script](../results/performance-20261004/reclaim/reproduce.sh) preserve the measurements and exact conditions.
+Whole-phase latency summaries include requests outside the single Compact interval, and periodic/request sampling may miss a brief stall. Some short deletion and Compact phases have no periodic observations; their memory peaks use boundary samples only. Every mixed recovery/concurrent run retains the fewer-than-100-GC-pause-events warning. These observations do not isolate request latency specifically during Compact.
 
 ## Upstream microbenchmarks
 
@@ -164,7 +148,7 @@ The Get and unit-weight Put cases reported median 0 B/op and 0 allocs/op for all
 
 DeletePrefix's 100-iteration measurement traverses 100 prefixes of 100 entries each, with refill excluded from timing. Arena Compact's median call cost was approximately **2.263 ms**, rebuilding 10,000 entries and deleting half outside each timed call. Its reported `reclaimed-B/op` median was **803,304 bytes across the 10 repeats' final-iteration heap deltas**. Despite the unit label, this is not average reclamation per Compact call. Its setup and cache size also differ from the harness's reclamation scenarios.
 
-Raw results are preserved for [Get/Put](../results/performance-20261004/micro-get-put/benchmark.txt), [unit-weight Put](../results/performance-20261004/micro-update/benchmark.txt), [DeletePrefix](../results/performance-20261004/micro-prefix/benchmark.txt) and [Compact](../results/performance-20261004/micro-compact/benchmark.txt). Each directory includes its executed launcher/command, environment, exit status and replay script; the [combined report](../results/performance-20261004/STUDY.md#standalone-go-microbenchmarks) links every artifact. Exact bounded commands and upstream timing details are in the [methodology](../docs/METHODOLOGY.md#cache-operation-microbenchmarks).
+Exact bounded microbenchmark commands and timing definitions are provided in the [methodology](../docs/METHODOLOGY.md#cache-operation-microbenchmarks).
 
 ## Interpretation
 

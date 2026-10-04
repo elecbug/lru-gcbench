@@ -10,15 +10,15 @@ The implemented scope includes static post-GC footprint, natural-GC steady/recla
 
 ## Relationship to existing benchmarks
 
-This runner includes workload/key/value generation in operation throughput. Existing upstream Go benchmarks remain useful for method-level cost and allocation analysis. The runner brings process-level memory pressure, GC events, retained entries and source provenance together. Its calibration configuration measures the combined cost of periodic sampling and request timing.
+This runner includes workload/key/value generation in operation throughput. Existing upstream Go benchmarks remain useful for method-level cost and allocation analysis. The runner brings process-level memory pressure, GC events, retained entries and source provenance together. Its calibration configuration separates retained-buffer memory, periodic sampling and request timing, and also measures their combined effect.
 
 Before proposing upstream integration, discuss location, maintenance scope, configuration format, reference-worker packaging and licensing. The current standalone harness is MIT-licensed; the target go-lru library retains its Apache-2.0 license and notices. An upstream contribution would need to follow the destination project's contribution requirements.
 
 ## Validation accompanying a proposal
 
-Actual map/radix/arena workers have been built and executed with Go 1.27.1 against a clean checkout at `6c2b8fa056eb77549eb8d2254a9940f52d92f9ff`. The [validation record](../validation/VALIDATION.md) distinguishes current integration evidence from earlier Go 1.23.2 fixture/reference checks. Historical reference results demonstrate harness behavior only.
+The [validation record](../validation/VALIDATION.md) distinguishes actual map/radix/arena integration checks from fixture and reference-worker checks. Reference implementations demonstrate harness behavior only and cannot support go-lru performance claims.
 
-A proposal should identify the exact commands, worker and source hashes, machine limits and raw result paths for the submitted implementation. A successful smoke suite is functional evidence, not a backend performance ranking. Validate pressure eviction under a suitably sized workload and inspect hit rate/retention before making a pressure-related claim. Upstream correctness and invariant tests remain separate from these harness boundary checks.
+A proposal should state its commands, worker and source hashes, machine limits, measurement settings and validation outcomes. A successful smoke suite is functional evidence, not a backend performance ranking. Validate pressure eviction under a suitably sized workload and inspect hit rate/retention before making a pressure-related claim. Upstream correctness and invariant tests remain separate from these harness boundary checks.
 
 ## Reproducible performance evidence
 

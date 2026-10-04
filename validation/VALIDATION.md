@@ -1,16 +1,12 @@
 # Validation record — 2026-10-04
 
-> Artifact retention update: The earlier `results/baseline/` and `results/improved-*` directories were removed during artifact cleanup on 2026-10-05. This report remains a historical summary; links to those removed raw artifacts no longer resolve. The [latest 732-job study](REPEATED-20261004.md), its raw results and its required binaries remain available.
-
-Raw logs and run results are local generated artifacts excluded from Git. Links to those artifacts resolve only in a workspace where the corresponding runs have been performed. This validation summary and the reduced pressure configuration are kept in version control.
-
-The subsequent [performance study record](PERFORMANCE-20261004.md) covers the rebuilt harness, saved execution scripts and longer experiment settings. The checks below document the earlier functional validation.
+The subsequent [performance study record](PERFORMANCE-20261004.md) covers the rebuilt harness and longer experiment settings. The [732-job repeated study](REPEATED-20261004.md) documents later comparisons and profiling. The checks below document the earlier functional validation.
 
 ## Actual upstream integration
 
-**The actual google/go-lru implementation has been built and executed.** The earlier statement that only fixture/reference validation was possible described the authoring environment, not the current workspace.
+**The actual google/go-lru implementation was built and executed.** The historical authoring environment described below had supported only fixture/reference validation.
 
-The original [baseline manifest](../results/baseline/manifest.json) and [raw results](../results/baseline/raw/) record:
+The original actual-backend smoke validation recorded:
 
 | Evidence | Recorded result |
 |---|---|
@@ -22,27 +18,27 @@ The original [baseline manifest](../results/baseline/manifest.json) and [raw res
 | Actual backends | `map`, `radix`, `arena` |
 | Original smoke result | 18/18 jobs with status `ok` |
 
-This baseline was generated before the comparison/reporting/scenario improvements. Its manifests and raw results were removed in the cleanup noted above; its original HTML did not demonstrate newly added chart or warning features. It is functional integration evidence, not a performance ranking.
+This baseline preceded the comparison, reporting and scenario improvements. It established functional integration, not a performance ranking or validation of the later chart and warning features.
 
 ## Validation of the improvements
 
 The improved source was validated with **Go 1.27.1 on Linux amd64**. A fresh worker was built against the same clean upstream commit shown above. Unit/integration tests cover comparison rejection paths, paired scheduling/failures, normalized metrics and median intervals, HTML output, prefix deletion and concurrent compaction.
 
-| Current check | Result and evidence |
+| Improvement validation check | Recorded result |
 |---|---|
-| `go test -race -count=1 ./...` | PASS — [race-test.log](improvements-20261004/race-test.log) |
-| `go vet ./...` | PASS — [vet.log](improvements-20261004/vet.log), empty on success |
-| Actual worker build | PASS — [worker-build.log](improvements-20261004/worker-build.log) |
-| Standard smoke | PASS — [18/18 jobs](../results/improved-smoke/manifest.json), [report](../results/improved-smoke/report.html) |
-| Extended smoke: prefix footprint/reclaim and concurrent Compact | PASS — [18/18 jobs](../results/improved-extended-smoke/manifest.json), [report](../results/improved-extended-smoke/report.html) |
-| Paired execution control | PASS — [18 baseline jobs](../results/improved-paired/base/manifest.json) + [18 candidate jobs](../results/improved-paired/candidate/manifest.json), [schedule](../results/improved-paired/paired.json), [comparison](../results/improved-paired/comparison/comparison.md) |
-| Reduced pressure validation | PASS — [12/12 jobs](../results/improved-pressure-validation/manifest.json), [report](../results/improved-pressure-validation/report.html) |
+| `go test -race -count=1 ./...` | PASS |
+| `go vet ./...` | PASS |
+| Actual worker build | PASS |
+| Standard smoke | PASS — 18/18 jobs |
+| Extended smoke: prefix footprint/reclaim and concurrent Compact | PASS — 18/18 jobs |
+| Paired execution control | PASS — 18 baseline jobs and 18 candidate jobs |
+| Reduced pressure validation | PASS — 12/12 jobs |
 | HTML structure/assets | PASS — parsed output contains tables and one SVG per job, with no remote assets or rejected template URLs |
 | License preservation | PASS — copied upstream license matches the original; upstream checkout remains clean |
 
 The paired control uses **the same worker on both sides** to exercise orchestration and comparison integrity. It produces 1,038 metric rows with no unmatched groups. Observed differences describe repeated execution variability and are not evidence of a version change.
 
-The new worker recorded in the smoke manifest has executable SHA256 `f8f66d77f67cf83e1b9d5b5ef5e828db2749ea1095ca0ab213f72f16af18d9b8` and harness source SHA256 `1b72614e257232be4ad9d5bec155176c76d857cc54e6d17d60ac9e6d5d76c22c`. These identify this validation build, not future builds after source changes.
+The improvement-validation worker had executable SHA256 `f8f66d77f67cf83e1b9d5b5ef5e828db2749ea1095ca0ab213f72f16af18d9b8` and harness source SHA256 `1b72614e257232be4ad9d5bec155176c76d857cc54e6d17d60ac9e6d5d76c22c`. These identify this validation build, not future builds after source changes.
 
 The [reduced pressure config](improvements-20261004/pressure-validation.json) uses capacity 20,000, key space 40,000, 10,000 warmup operations, 100,000 measured operations, one repetition, limits of 12/32 MiB, and pressure reclamation off/on. Across each 12 MiB pressure-on job, recorded pressure evictions were:
 
@@ -52,15 +48,15 @@ The [reduced pressure config](improvements-20261004/pressure-validation.json) us
 | radix | 18,258 |
 | arena | 18,192 |
 
-All pressure-off jobs recorded zero pressure evictions. At 32 MiB, both settings recorded zero. These checks establish that the pressure path was exercised; they do not rank backend memory efficiency. Read retained entries and hit rates in the raw results. The then-current 90-job pressure study and 60-job calibration experiment were not run as part of this functional validation. The pressure example has since been expanded to 10 repetitions (180 jobs); later performance evidence is recorded separately.
+All pressure-off jobs recorded zero pressure evictions. At 32 MiB, both settings recorded zero. These checks establish that the pressure path was exercised; they do not rank backend memory efficiency. The eviction counts alone do not establish a memory saving at equal retention or hit rate. The then-current 90-job pressure study and 60-job calibration experiment were not run as part of this functional validation. The pressure example has since been expanded to 10 repetitions (180 jobs); later performance evidence is recorded separately.
 
-Run logs are [smoke-run.log](improvements-20261004/smoke-run.log), [extended-smoke-run.log](improvements-20261004/extended-smoke-run.log), [paired-run.log](improvements-20261004/paired-run.log) and [pressure-run.log](improvements-20261004/pressure-run.log). Reproduce the main checks from `lru-gcbench/` using the [README commands](../README.md); pass the saved reduced config to `run` for the pressure check. Build a fresh worker because existing binaries retain the harness source embedded at build time.
+Reproduce the main checks from `lru-gcbench/` using the [README commands](../README.md). Use the tracked [reduced pressure configuration](improvements-20261004/pressure-validation.json) for that check and build a fresh worker so the tested source matches the current harness.
 
 ## Historical authoring environment
 
 The original harness was authored with `go1.23.2 linux/amd64`. GitHub cloning and Go-proxy module access were unavailable there, while the inspected target required Go 1.26. That environment inspected the public API and ran fixture/reference tests; it did not build or execute the actual upstream implementation.
 
-The following table describes the preserved original logs. These are historical observations, not claims that the current source produced identical test counts or coverage.
+The following table summarizes the checks performed in that authoring environment. These are historical observations, not claims that the current source produced identical test counts or coverage.
 
 | Historical check | Recorded result |
 |---|---|
@@ -80,15 +76,9 @@ The following table describes the preserved original logs. These are historical 
 | Windows runtime execution | NOT PERFORMED |
 | Actual upstream build/run in that authoring environment | NOT PERFORMED |
 
-The historical coverage log reports **83.5%** for `bench` and **73.6%** for the builder package. These are package-specific statement coverage figures for that source version, not current coverage or a whole-project percentage.
+Historical statement coverage was **83.5%** for `bench` and **73.6%** for the builder package. These are package-specific statement coverage figures for that source version, not current coverage or a whole-project percentage.
 
-Historical evidence remains in:
-
-- `tests.jsonl`, `race-test.log`, `vet.log`, `coverage.log`, `windows-cross-build.log`.
-- `reference-A-run.log`, `reference-B-run.log`, `compare.log`.
-- `reference-A/`, `reference-B/`, `reference-comparison/`.
-
-**Reference outputs are not go-lru measurements.** They validate the harness's process, metric and report plumbing. The two-repetition reference batches support functional checks only. They establish no GC advantage or backend ranking.
+**Reference runs are not go-lru measurements.** They validate the harness's process, metric and report plumbing. The two-repetition reference batches support functional checks only. They establish no GC advantage or backend ranking.
 
 ## Interpretation limits
 

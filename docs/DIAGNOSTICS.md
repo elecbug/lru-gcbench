@@ -6,7 +6,7 @@ The completed [diagnostic follow-up](../validation/DIAGNOSTICS-20261004.md) reco
 
 The original [performance study](../validation/PERFORMANCE-20261004.md) observed lower Arena GC CPU cost, lower shared-cache throughput with more request workers, extra allocation under pressure reclamation, and substantial memory recovery after Compact. Those observations motivate controls; they do not identify a particular lock, allocation site or GC mechanism. Retained heap, scannable heap, allocation volume, GC CPU and request throughput remain separate outcomes.
 
-All examples save settings with the result. Build a fresh controller and worker, then run a selected configuration sequentially using the [recorded wrapper](PERFORMANCE.md#save-the-executed-script-with-every-run):
+All examples save settings with the result. Build a fresh controller and worker, then run a selected configuration sequentially using the [recorded wrapper](../scripts/run-recorded.sh):
 
 ```sh
 ./scripts/run-recorded.sh ./bin/lrugcbench "bin/worker-$run_id" \
@@ -30,15 +30,7 @@ Pilot mode runs **124 fresh worker processes**. Unprofiled suites use two repeti
 
 Use `full` explicitly to run the unmodified example configurations, currently **532 jobs**. This includes ten repetitions for unprofiled controls and one repetition for each profile condition. It does not automatically select a suitable duration from the pilot: if the pilot indicates insufficient measured time or samples, prepare a revised protocol first and preserve its configuration. The example files themselves are not changed by either mode.
 
-The result root records:
-
-- `diagnostic-plan.json`: driver mode, suite names, job counts and whether each suite is profiled.
-- `configs/`: every exact configuration passed to a suite, including pilot reductions.
-- `executed-driver.sh` and `executed-driver-command.sh`: the actual driver source and original invocation.
-- `driver-exit-status.txt`: the driver's completion status, including a failed attempt.
-- `analysis-commands.sh`: the profile analysis commands actually run after measurement.
-
-Each suite additionally contains the recorded wrapper, original command, configuration, log, replay script and raw results. Each profile directory retains `analyze.sh`, `top.txt` sorted by flat cost, and `cumulative.txt` sorted by cumulative cost. A failed suite stops the driver; retained earlier results and the exit status show how far it completed. The original-command scripts record their original output paths, so use a new path when launching again; use each suite's `reproduce.sh` for a saved effective configuration. Whole-driver runs read the current example files, while per-suite replay reads the saved configuration.
+The [driver](../scripts/run-diagnostics.sh) records effective settings and execution commands for reproducibility. A failed suite stops the driver. Use a new output path for each invocation; whole-driver runs read the current example configurations.
 
 ## Freeze and run the repeated study
 
@@ -46,15 +38,7 @@ For the complete workflow, run `make benchmark RUN_ID=20261005-01` from `lru-gcb
 
 The workflow runs Go race/vet checks and analyzer self-tests, builds unique controller/worker binaries, runs 18 smoke jobs, prepares the study and expanded comparison plan, executes all 732 study jobs and profile extraction, then runs both analyzers. These stages execute sequentially even when Make is invoked with `-j`.
 
-| Artifact | Path |
-|---|---|
-| Controller | `bin/lrugcbench-<RUN_ID>` |
-| Worker | `bin/worker-<RUN_ID>` |
-| Smoke results and replay scripts | `results/smoke-<RUN_ID>/` |
-| Repeated measurements, profiles and analyses | `results/repeated-<RUN_ID>/` |
-| Pipeline log, executed script, commands and status | `results/workflow-<RUN_ID>/` |
-
-After preflight succeeds, the workflow saves `executed-workflow.sh`, `Makefile`, `executed-command.sh`, `commands.sh`, `workflow.log` and `workflow-exit-status.txt` in its pipeline directory. Exit status zero means the entire workflow, including both analyzers, completed. These records complement the per-suite execution and replay artifacts. A failed stage stops the workflow and preserves its recorded diagnostics; its output identifier cannot be reused. No timed suites or post-processing run concurrently within this command. Preserve both binaries at their recorded paths for later integrity checks and profile analysis.
+The [workflow launcher](../scripts/run-benchmark.sh) returns zero only after every stage, including both analyzers, succeeds. A failed stage stops the workflow; its output identifier cannot be reused. No timed suites or post-processing run concurrently within this command.
 
 To run the study stages manually with existing binaries, `scripts/run-repeated-study.sh` separates preparation from execution:
 
@@ -67,11 +51,11 @@ python3 scripts/analyze-repeated.py "results/repeated-$run_id"
 python3 scripts/analyze-profile-repeats.py "results/repeated-$run_id"
 ```
 
-Preparation requires a new output path and writes the 732-job `study-plan.json`, effective configurations, binary/configuration hashes, comparison policy and a saved suite wrapper. Execution verifies those hashes, records its own driver source and invocation, and runs suites serially. It refuses an output root that has already started. Per-suite replay scripts remain available for independently replaying saved configurations into fresh directories.
+Preparation requires a new output path and freezes the effective configurations, executable identities and comparison policy. Execution verifies those identities and runs suites serially. It refuses an output root that has already started.
 
 This protocol contains ten repetitions for unprofiled controls and six for each profile condition. Pressure observer-off and observer-on controls are separate suites. Dense Compact traces record every request for all three backends. CPU profiles use a larger request budget than mutex/block profiles, so attribution is analyzed by profile kind and normalized per operation where appropriate. Every profile gets full flat/cumulative text output after all timed jobs have finished.
 
-The study plan declares the comparison policy before measurement. `scripts/analyze-repeated.py` provides the separate comparison-plan/analysis workflow; retain its generated plan and exact execution record alongside the driver artifacts. Same-seed statistical pairs follow globally shuffled suite execution, not adjacent temporal pairing. Individual median-effect intervals and exploratory adjusted sign tests have different interpretations; a large global family with ten pairs has little rejection power. Use effect sizes, coverage and profile consistency with the full limitations in the saved study record.
+Declare the comparison policy before measurement using the [paired analyzer](../scripts/analyze-repeated.py). Same-seed statistical pairs follow globally shuffled suite execution, not adjacent temporal pairing. Individual median-effect intervals and exploratory adjusted sign tests have different interpretations; a large global family with ten pairs has little rejection power. Use effect sizes, coverage and profile consistency with the full limitations in the [repeated study summary](../validation/REPEATED-20261004.md).
 
 ## Separate instrumentation effects
 
@@ -121,7 +105,7 @@ This configuration opts into `sample_cache_stats=true` to record retention and p
 
 [profiling.json](../examples/profiling.json) records CPU, mutex and block profiles for four workers using shared and independent caches. [profiling-arena.json](../examples/profiling-arena.json) records Arena allocation profiles for the three pressure-control conditions. [profiling-arena-fill.json](../examples/profiling-arena-fill.json) records 1,000,000-entry initial fill under an unlimited runtime-memory policy, matching the original study's scale and payload. Each job selects exactly one `profile` and an explicit `profile_phase` such as `fill` or `measured`.
 
-Results include `profiles/<job-id>/profile.json`, profile files, an executable `analyze.sh` and notes. The analysis script embeds the recorded worker path. Keep that executable with the profiles or adjust the path if relocating it. The JSON records the selected phase/rate and whether recording completed. Failed profiles remain diagnostic artifacts and do not imply a successful measurement.
+Profile analysis requires the worker executable from the same build as the measurements. Failed profile recording does not imply a successful measurement.
 
 Examples of the underlying commands, using the actual paths from a result:
 
@@ -133,7 +117,7 @@ go tool pprof -top -sample_index=alloc_space \
   -base=/path/to/allocs-before.pprof /path/to/worker /path/to/allocs-after.pprof
 ```
 
-The profiler's saved `analyze.sh` is preferable to manually guessing filenames. Profiled results are marked **PROFILED DIAGNOSTIC**. Sampling changes CPU, memory and scheduling; compare normal unprofiled repetitions separately. A mutex profile records sampled contention associated with lock-holder stacks, not a complete map of every lock's elapsed time. A block profile can also include runner barriers and channel waits. Read CPU, contention and allocation evidence together.
+The repeated-study driver runs profile extraction automatically. Profiled results are marked **PROFILED DIAGNOSTIC**. Sampling changes CPU, memory and scheduling; compare normal unprofiled repetitions separately. A mutex profile records sampled contention associated with lock-holder stacks, not a complete map of every lock's elapsed time. A block profile can also include runner barriers and channel waits. Read CPU, contention and allocation evidence together.
 
 `profile_rate=0` uses defaults. Nonzero allocation rates are bytes between samples; smaller values increase detail and overhead. Mutex rates sample contention events; block rates are nanoseconds. CPU profiles use the runtime's fixed sampling behavior. The examples use a 64 KiB allocation rate, mutex rate one, and block rate 10,000 ns. Rates must remain recorded and comparable across diagnostic controls.
 
@@ -149,4 +133,4 @@ Allocation profiling starts before cache construction. Phase snapshots use two f
 
 The separate `compact-overlap` selection contains sampled calls whose time intervals intersect the actual Compact call. It includes a call that began before Compact and waited until afterwards. It reports latency observations, not a throughput rate. The disabled control has no actual Compact overlap; use the fixed trigger windows to compare it with enabled. Whole-phase p99 can hide a brief stall, while a small overlap sample cannot establish a stable p99 either.
 
-Inspect `request-trace.csv`, `compact-observations.csv`, raw `request_windows` and the report's window tables. Heap/RSS sample peaks remain observed lower bounds; a short Compact can finish between periodic samples. These closed-loop request measurements do not include an external arrival queue or demonstrate a service-level tail-latency guarantee.
+Interpret request windows alongside the observed Compact interval and retained-entry counts. Heap/RSS sample peaks remain observed lower bounds; a short Compact can finish between periodic samples. These closed-loop request measurements do not include an external arrival queue or demonstrate a service-level tail-latency guarantee.

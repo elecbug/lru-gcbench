@@ -1,7 +1,5 @@
 # Diagnostic follow-up — 2026-10-04
 
-> Artifact retention update: The earlier `results/diagnostics-20261004/` and `results/compact-dense-20261004/` directories were removed during artifact cleanup on 2026-10-05. This report remains a historical summary; links to those removed raw artifacts no longer resolve. The [latest 732-job study](REPEATED-20261004.md), its raw results and its required binaries remain available.
-
 All **124 requested jobs completed successfully**, followed by all 22 profile analyses. The driver exited with status zero and the independent integrity audit passed. This is a diagnostic pilot with two repetitions per unprofiled condition and one per profile condition; it does not establish a new performance ranking.
 
 A separate **four-job dense-trace follow-up also completed successfully**, bringing the total to **128 jobs**. Its instrumentation and operation budget differ; the 124-job scope and tables below remain separate from that supplement.
@@ -22,7 +20,7 @@ See [DIAGNOSTICS.md](../docs/DIAGNOSTICS.md) for configuration fields, measureme
 
 ## Pilot scope and provenance
 
-The recorded driver used `pilot` mode for 124 fresh worker processes: 102 unprofiled jobs and 22 profiled jobs. Unprofiled conditions have two independent repetitions; profile conditions have one. The full 532-job protocol has not been run as part of this follow-up.
+The recorded driver used `pilot` mode for 124 fresh worker processes: 102 unprofiled jobs and 22 profiled jobs. Unprofiled conditions have two independent repetitions; profile conditions have one. The full 532-job protocol was not run as part of this follow-up. The later [732-job study](REPEATED-20261004.md) provides repeated performance comparisons and profiles.
 
 | Suite | Jobs requested | Pilot settings |
 |---|---:|---|
@@ -35,7 +33,7 @@ The recorded driver used `pilot` mode for 124 fresh worker processes: 102 unprof
 | Arena initial-fill allocation profile | 1 | 1,000,000 entries, 256-byte values, unlimited runtime-memory policy |
 | Arena pressure allocation profiles | 3 | Three capacity/policy controls under 64 MiB |
 
-Warmups are capped at 100,000 operations. Capacities, key spaces, payloads, runtime policies and instrumentation settings retain the full examples' values. Suites and worker processes run sequentially. Profile analysis runs only after timed jobs finish. The saved configurations, rather than current example files, define this execution.
+Warmups are capped at 100,000 operations. Capacities, key spaces, payloads, runtime policies and instrumentation settings retain the full examples' values. Suites and worker processes run sequentially. Profile analysis runs only after timed jobs finish. The table above records this execution's operation budgets; the [pilot driver](../scripts/run-diagnostics.sh) implements the reduction from the example configurations.
 
 | Item | Recorded value |
 |---|---|
@@ -44,22 +42,8 @@ Warmups are capped at 100,000 operations. Capacities, key spaces, payloads, runt
 | Upstream commit | `6c2b8fa056eb77549eb8d2254a9940f52d92f9ff` |
 | Worker SHA256 | `c34e09ef233d186af71ab2c4300882ac847c483196e0cf5c018ba9f3f899d038` |
 | Harness source SHA256 | `d47a6438d946b67659355f9f202f95584d05d0444683b39081dbfe8108db3186` |
-| Result root | `results/diagnostics-20261004/` |
 
-The following commands were launched sequentially from `/home/elecbug/src/go-lru/lru-gcbench`:
-
-```sh
-GOCACHE=/tmp/go-lru-review-cache GOPROXY=off \
-  go build -o bin/lrugcbench-diagnostics-20261004 ./cmd/lrugcbench
-GOCACHE=/tmp/go-lru-review-cache GOPROXY=off \
-  ./bin/lrugcbench-diagnostics-20261004 build -repo ../go-lru -source . \
-  -out bin/lru-worker-diagnostics-20261004
-GOCACHE=/tmp/go-lru-review-cache GOPROXY=off \
-  ./scripts/run-diagnostics.sh ./bin/lrugcbench-diagnostics-20261004 \
-  ./bin/lru-worker-diagnostics-20261004 results/diagnostics-20261004 pilot
-```
-
-The result root saves `diagnostic-plan.json`, effective `configs/`, the executed driver and original command, and the driver exit status. Every suite records its execution/replay scripts, command, configuration, log, manifest and raw measurements. Profile directories retain their data, `analyze.sh`, flat-cost `top.txt` and cumulative-cost `cumulative.txt`; the root records `analysis-commands.sh`.
+The [diagnostic driver](../scripts/run-diagnostics.sh) runs the pilot suites sequentially and performs profile analysis after measurement. The [diagnostic guide](../docs/DIAGNOSTICS.md) explains the configuration controls and execution workflow.
 
 ## Validation completed before execution
 
@@ -72,13 +56,13 @@ go vet ./...
 git diff --check
 ```
 
-Tests cover matched calibration/control configurations, synthetic-metric suppression, exact per-run hit/miss rates, separate reclamation counters, cache-observation timestamps, bounded request traces and window summaries, profile artifacts and lifecycle, and existing report/comparison behavior. Passing these checks establishes tested implementation behavior; it does not establish benchmark precision or a causal performance explanation.
+Tests cover matched calibration/control configurations, synthetic-metric suppression, exact per-run hit/miss rates, separate reclamation counters, cache-observation timestamps, bounded request traces and window summaries, profile generation and lifecycle, and existing report/comparison behavior. Passing these checks establishes tested implementation behavior; it does not establish benchmark precision or a causal performance explanation.
 
-The [saved integrity audit](../results/diagnostics-20261004/integrity-audit.json) checked eight suites, 124 jobs, 371 phases and 22 profile records; it independently recomputed 42 request windows and 484 selected summary distributions. Worker/source provenance, workload accounting and request-trace accounting matched. There were no dropped runtime or request samples, and no forced-GC count deltas within timed natural-GC phases. Allocation-profile boundary collections occur outside those phase windows. The [audit script](../results/diagnostics-20261004/integrity-audit-script.py) and [executed command](../results/diagnostics-20261004/integrity-audit-command.sh) are saved beside the audit. Its checks establish internal consistency, not significance or absence of observer effects.
+The integrity audit checked eight suites, 124 jobs, 371 phases and 22 profile records; it independently recomputed 42 request windows and 484 selected summary distributions. Worker/source provenance, workload accounting and request-trace accounting matched. There were no dropped runtime or request samples, and no forced-GC count deltas within timed natural-GC phases. Allocation-profile boundary collections occur outside those phase windows. These checks establish internal consistency, not significance or absence of observer effects. The [diagnostic verifier](../scripts/verify-diagnostics.py) implements the reusable checks.
 
 ## Preliminary observations
 
-The following unprofiled values are descriptive medians of **two** worker results. The [saved analysis script](../results/diagnostics-20261004/documentation-analysis.py), [executed command](../results/diagnostics-20261004/documentation-analysis-command.sh), [JSON calculations](../results/diagnostics-20261004/documentation-facts.json) and [complete descriptive tables](../results/diagnostics-20261004/documentation-facts.md) reproduce them from raw results. They must not be pooled with the historical study or the profiled conditions.
+The following unprofiled values are descriptive medians of **two** worker results. They must not be pooled with the historical study or the profiled conditions.
 
 ### Calibration controls retain comparable buffer memory
 
@@ -116,7 +100,7 @@ Separate mutex-profile runs used 2,000,000 requests, four workers and one profil
 | Radix | 16.13 s | 107.17 µs |
 | Arena | 6.71 s | 523.70 µs |
 
-Shared profiles attributed almost all sampled mutex delay to cache Get/Put unlock stacks. Independent profiles primarily showed small runtime/allocator contention. For Arena, shared Get and Put paths accounted for 69.86% and 30.13% of the sampled mutex delay respectively. This is evidence of actual cache contention in the profiled conditions. Sampled delay sums waiting across goroutines and is not request wall time; it does not quantify what fraction of the historical throughput loss came from locks. Block profiles also include worker joins, WaitGroups and sampler waits. Nested cumulative profile rows must not be added together. See the [profile findings and source links](../results/diagnostics-20261004/PROFILE-FINDINGS.md), [profile dataset](../results/diagnostics-20261004/PROFILE-DATA.json) and [saved extraction script](../results/diagnostics-20261004/profile-analysis.py).
+Shared profiles attributed almost all sampled mutex delay to cache Get/Put unlock stacks. Independent profiles primarily showed small runtime/allocator contention. For Arena, shared Get and Put paths accounted for 69.86% and 30.13% of the sampled mutex delay respectively. This is evidence of actual cache contention in the profiled conditions. Sampled delay sums waiting across goroutines and is not request wall time; it does not quantify what fraction of the historical throughput loss came from locks. Block profiles also include worker joins, WaitGroups and sampler waits. Nested cumulative profile rows must not be added together.
 
 ### Pressure controls separate cache utility and dynamic recovery
 
@@ -144,7 +128,7 @@ The separate one-million-entry Arena fill profile recorded 891.175 runtime B/op,
 
 The three Arena pressure allocation profiles recorded 77.718 B/op for 200k off, 136.639 B/op for 200k on, and 79.963 B/op for 100k off. The on run recorded four tier-2 compactions and 146,424 pressure evictions; both off runs recorded no compactions. In the on profile, `compactDataStructuresLocked` accounted for 18.88% of flat sampled allocated bytes and `allocateNode` for 17.73%. These disjoint flat sites total 36.61%; `shedAndCompactLocked` contributed another 3.62% at its own flat allocation site. Rebuild and subsequent node growth are therefore observed additional allocation paths, beyond the effect of simply retaining a smaller cache.
 
-These are single **profiled** runs with forced profile-boundary collections and a disabled periodic cache observer. Their allocation figures differ from the unprofiled two-run medians above and must remain separate. The [profile dataset](../results/diagnostics-20261004/PROFILE-DATA.json), [extraction command](../results/diagnostics-20261004/profile-analysis-command.sh) and per-job flat/cumulative reports preserve the attribution evidence.
+These are single **profiled** runs with forced profile-boundary collections and a disabled periodic cache observer. Their allocation figures differ from the unprofiled two-run medians above and must remain separate.
 
 ### Compact state is matched, but overlap samples are sparse
 
@@ -158,15 +142,15 @@ All twelve enabled/disabled runs observed exactly 25,000 entries before and afte
 
 The read-only controls remove the earlier confound from writes growing the cache during Compact. They also reveal a measurement limitation: sampling every 64 requests almost entirely missed calls overlapping the single Compact. The one Arena observation cannot establish an overlap p99, and zero observations do not establish zero stalls.
 
-Fixed 50 ms trigger windows still provide a local completion-rate observation. Arena's enabled windows each retained 818 request samples, versus 1,131 and 1,097 in the disabled runs; these are sampled completion counts rather than exact operation totals or population-tail estimates. A follow-up focused on individual Compact stalls should increase request-trace density and recalibrate its overhead. The [raw request trace](../results/diagnostics-20261004/compact-window/request-trace.csv), [Compact state observations](../results/diagnostics-20261004/compact-window/compact-observations.csv) and [complete window tables](../results/diagnostics-20261004/documentation-facts.md) preserve the coverage evidence.
+Fixed 50 ms trigger windows still provide a local completion-rate observation. Arena's enabled windows each retained 818 request samples, versus 1,131 and 1,097 in the disabled runs; these are sampled completion counts rather than exact operation totals or population-tail estimates. A follow-up focused on individual Compact stalls should increase request-trace density and recalibrate its overhead.
 
 ## Supplemental dense Compact trace
 
 The sparse overlap coverage motivated four additional Arena runs: Compact enabled/disabled with two repetitions each, 400,000 read-only requests, and `request_trace_every=1`. Capacity, 75% deletion, two request workers and the original worker binary remained unchanged. Both arms retained 400,000 observation slots, versus 31,250 actual slots in the original pilot, allocated before the request phase but after baseline GC. This is a separate instrumentation regime with additional timing and live-memory costs, not another repetition of the earlier experiment.
 
-The [supplemental audit](../results/compact-dense-20261004/dense-trace-audit.json) passed: all 1,600,000 request observations were retained without drops, observed entries stayed at 25,000, fixed-window/histogram calculations matched and timed phases contained no forced-GC count increments. The two enabled Compact calls lasted 13.132 and 7.440 ms. Their overlapping request sets contained six and 127 calls respectively, including short calls during the Compact call interval; each set contained two calls longer than 1 ms. Those individual requests lasted **13.138/13.171 ms** and **7.445/7.460 ms**. The disabled controls' 50 ms trigger-window maxima were **0.150 and 0.208 ms**.
+The supplemental audit passed: all 1,600,000 request observations were retained without drops, observed entries stayed at 25,000, fixed-window/histogram calculations matched and timed phases contained no forced-GC count increments. The two enabled Compact calls lasted 13.132 and 7.440 ms. Their overlapping request sets contained six and 127 calls respectively, including short calls during the Compact call interval; each set contained two calls longer than 1 ms. Those individual requests lasted **13.138/13.171 ms** and **7.445/7.460 ms**. The disabled controls' 50 ms trigger-window maxima were **0.150 and 0.208 ms**.
 
-The denser trace therefore captured individual long requests associated with the Compact interval that sparse sampling had missed. These observations do not isolate lock-holding time or establish a stable population p99. The [executed parent script](../results/compact-dense-20261004/executed-parent-script.sh), [exact configuration](../results/diagnostics-20261004/compact-dense-config.json), [audit script](../results/compact-dense-20261004/audit-script.py) and [audit command](../results/compact-dense-20261004/audit-command.sh) preserve this follow-up separately from the main driver study.
+The denser trace therefore captured individual long requests associated with the Compact interval that sparse sampling had missed. These observations do not isolate lock-holding time or establish a stable population p99.
 
 ## Interpretation limits
 
@@ -178,4 +162,12 @@ Allocation-profile snapshots use forced collections outside the workload timer t
 
 Compact-window rates scale timestamped request samples; they are not exact per-window operation counts. Overlapping-call latency has no throughput denominator. These closed-loop measurements omit an external arrival queue, and brief memory peaks can fall between periodic samples. The controls can support narrower hypotheses; none alone identifies the entire cause of a throughput difference.
 
-Generated raw results, profiles and analysis artifacts linked here remain local under `results/` and are ignored by Git. Preserve or archive that directory to share the complete evidence with this tracked record.
+## Run a new study
+
+For a fresh repeated follow-up, use the [benchmark workflow](../scripts/run-benchmark.sh) from the repository root with a new run identifier and a clean upstream checkout:
+
+```sh
+make benchmark RUN_ID=my-new-study UPSTREAM_REPO=/path/to/go-lru
+```
+
+This builds and validates the tools before running the repeated protocol. It runs the larger study described in [REPEATED-20261004.md](REPEATED-20261004.md), not the short pilot summarized here. Use the [diagnostic driver](../scripts/run-diagnostics.sh) and [configuration guide](../docs/DIAGNOSTICS.md) when selecting a pilot instead.

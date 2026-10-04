@@ -2,9 +2,7 @@
 
 Use fresh actual-backend workers, run suites sequentially on an otherwise idle host, and preserve every configuration and launch script with its results. Smoke results establish integration only. A configuration in `examples/` describes an experiment; it is not evidence that the experiment has been run.
 
-The completed [2026-10-04 study record](../validation/PERFORMANCE-20261004.md) contains 450 repeated-study jobs, 12 pilot jobs and 130 standalone microbenchmark measurements, with the actual build, results and interpretation limits.
-
-The [732-job repeated follow-up](../validation/REPEATED-20261004.md) supplies ten-repeat performance controls, six-repeat profiles, paired effect intervals and dense Compact traces. Its [prepare/run workflow](DIAGNOSTICS.md#freeze-and-run-the-repeated-study) freezes effective configurations and executable hashes; it preserves the original study separately.
+The [repeated-study workflow](DIAGNOSTICS.md#freeze-and-run-the-repeated-study) runs ten repetitions per performance condition and six per profile condition, with paired effect intervals and dense Compact traces. It freezes effective configurations and executable hashes before measurement. The [recorded findings](../validation/REPEATED-20261004.md) illustrate how to interpret these controls.
 
 ## Recommended sequence
 
@@ -25,11 +23,11 @@ The narrow baseline fixes capacity at 100,000 entries, key space at 200,000, ind
 
 Run a one-repetition pilot before a long study. Inspect the `measured` phase duration for every backend and select one common operation count that gives the fastest backend roughly 5–10 seconds of work. Keep that count in the final saved configuration for all backends. Increase the count if the resulting GC or request samples are still inadequate. The example's operation count is a starting point, not an automatic duration guarantee.
 
-Calibration must use the baseline's workload, operation count and runtime settings. The current five-arm configuration separates buffer retention from active runtime sampling and request timing: no buffer/timing, retained buffer only, buffer plus runtime sampling, buffer plus request timing, and buffer plus both. The four retained-buffer arms allocate and touch the same 10,000 slots before baseline GC. Compare each activity against buffer-only, and compare buffer-only against no-buffer to examine the retained-memory effect. Their effects can interact through GC and scheduling; faster instrumented throughput does not establish a speedup or zero overhead. The historical study's saved two-arm calibration remains unchanged and cannot establish these separated costs. Changing sampling, topology or concurrency requires a suitable calibration.
+Calibration must use the baseline's workload, operation count and runtime settings. The current five-arm configuration separates buffer retention from active runtime sampling and request timing: no buffer/timing, retained buffer only, buffer plus runtime sampling, buffer plus request timing, and buffer plus both. The four retained-buffer arms allocate and touch the same 10,000 slots before baseline GC. Compare each activity against buffer-only, and compare buffer-only against no-buffer to examine the retained-memory effect. Their effects can interact through GC and scheduling; faster instrumented throughput does not establish a speedup or zero overhead. Changing sampling, topology or concurrency requires a suitable calibration.
 
 Decide the final repetition count in advance. Use the same seed policy and matched settings across backends; use `run-paired` for before/after library versions. Do not run multiple suites concurrently, because their CPU, memory bandwidth and GC contention would become part of each other's workload. Record machine changes and background load that materially affect a run.
 
-## Save the executed script with every run
+## Run and reproduce experiments
 
 Build a fresh controller and worker with the [README commands](../README.md#quick-start), then use the recorded wrapper for each chosen configuration. For example, from `lru-gcbench/` with `run_id` and the worker from that build:
 
@@ -40,17 +38,9 @@ Build a fresh controller and worker with the [README commands](../README.md#quic
   examples/performance.json "results/performance-$run_id" baseline
 ```
 
-Each output directory retains `executed-script.sh` (the wrapper source that ran), `executed-command.sh` (the original benchmark command), effective `config.json`, `command.json`, `run.log`, `reproduce.sh`, raw measurements and reports. Keep a derived pilot/subset configuration under its own name and pass it through the same wrapper. For individual Go benchmarks, use `scripts/run-microbench-recorded.sh` as shown in the [microbenchmark instructions](METHODOLOGY.md#cache-operation-microbenchmarks).
+The [recorded wrapper](../scripts/run-recorded.sh) captures the executed script, command and effective configuration for reproducibility. Keep a derived pilot or subset configuration under its own name and pass it through the same wrapper. For individual Go benchmarks, use the [microbenchmark wrapper](../scripts/run-microbench-recorded.sh) as shown in the [microbenchmark instructions](METHODOLOGY.md#cache-operation-microbenchmarks).
 
-Use a result's `reproduce.sh` with a new output directory to rerun it. A harness replay uses the recorded configuration and original binaries; it does not rebuild sources or recreate the host. A microbenchmark replay invokes Go again against the original checkout path, so preserve the recorded toolchain and source revision. The README lists harness binary path overrides and paired-run behavior. Generated results are ignored by Git; the saved scripts and logs remain available in the local result directory.
-
-For the recorded study layout, with `calibration/`, `baseline/`, `footprint/`, `scalability/`, `pressure64/`, `reclaim/` and the four `micro-get-put/`, `micro-update/`, `micro-prefix/`, `micro-compact/` directories, generate a combined summary after the suites finish:
-
-```sh
-python3 scripts/summarize-study.py results/performance-20261004
-```
-
-This writes `STUDY.md`, `study-summary.csv` and a copy of the executed `analysis-script.py`; the Markdown report records the exact analysis invocation and working directory. The CSV contains both harness and microbenchmark rows, while the report keeps their results and pilot evidence separate. Missing or unsuccessful main suites or selected microbenchmark cases cause a nonzero exit while preserving the report. Use `--allow-incomplete` only for an explicitly incomplete progress snapshot. The generated summary does not replace each suite's raw results and sample-quality warnings.
+Replay requires a new output destination. A harness replay uses the recorded configuration and original binaries; it does not rebuild sources or recreate the host. A microbenchmark replay invokes Go against the original checkout path, so preserve the recorded toolchain and source revision. The [repeated-study workflow](DIAGNOSTICS.md#freeze-and-run-the-repeated-study) includes separate statistical and profile analysis commands.
 
 ## Memory and pressure experiments
 
@@ -84,4 +74,4 @@ Keep pilot, functional validation and final study results distinct. Report actua
 
 ## Diagnose the observed tradeoffs
 
-Use [DIAGNOSTICS.md](DIAGNOSTICS.md) for the follow-up controls motivated by the original study. Shared/independent/harness topologies and per-phase profiles help locate concurrency costs without assuming a lock is the cause. A smaller-capacity pressure-off control helps separate dynamic reclamation from retaining fewer entries. Read-only Compact enabled/disabled cases keep state comparable while examining local request windows. These new configurations are protocols, not evidence that a bottleneck has been identified or eliminated. Preserve the historical study separately from new diagnostic results.
+Use [DIAGNOSTICS.md](DIAGNOSTICS.md) to design controls for observed tradeoffs. Shared/independent/harness topologies and per-phase profiles help locate concurrency costs without assuming a lock is the cause. A smaller-capacity pressure-off control helps separate dynamic reclamation from retaining fewer entries. Read-only Compact enabled/disabled cases keep state comparable while examining local request windows. These configurations define protocols; conclusions require measured results and their limitations.

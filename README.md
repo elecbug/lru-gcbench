@@ -4,13 +4,11 @@ Measure memory, GC and workload throughput for `google/go-lru`'s `map`, `radix` 
 
 [Diagnostic experiments](docs/DIAGNOSTICS.md) · [Performance study guide](docs/PERFORMANCE.md) · [Measurement protocol](docs/METHODOLOGY.md) · [Validation record](validation/VALIDATION.md)
 
-The completed [2026-10-04 performance study](validation/PERFORMANCE-20261004.md) records 450 repeated-study jobs, 12 pilot jobs and 130 upstream microbenchmark measurements, with saved execution scripts, verified provenance and workload-specific findings.
+The completed [2026-10-04 performance study](validation/PERFORMANCE-20261004.md) summarizes 450 repeated-study jobs, 12 pilot jobs and 130 upstream microbenchmark measurements, with the tested conditions and workload-specific findings.
 
 The [diagnostic follow-up](validation/DIAGNOSTICS-20261004.md) completed 124 main pilot jobs plus four targeted dense Compact traces, 128 jobs in total. It records matched calibration, topology, pressure and Compact controls plus phase profiles, keeping these preliminary findings separate from the original study.
 
-The completed [732-job repeated study](validation/REPEATED-20261004.md) adds ten repetitions per performance condition and six per profile condition, matched-seed effect intervals, explicit pressure-observer controls and complete Compact request traces. Saved scripts and raw/profile evidence accompany each result.
-
-Artifact cleanup on 2026-10-05 removed the earlier raw run directories and obsolete binaries. Their validation summaries remain as historical records. The latest 732-job study retains its raw results, profiles, scripts and both required binaries.
+The completed [732-job repeated study](validation/REPEATED-20261004.md) summarizes ten repetitions per performance condition and six per profile condition, matched-seed effect intervals, explicit pressure-observer controls and observations from complete Compact request traces.
 
 ## Run the complete workflow
 
@@ -22,7 +20,7 @@ make benchmark RUN_ID=20261005-01
 
 This validates inputs, runs Go race/vet checks and analyzer self-tests, builds a fresh controller and worker, runs the 18-job smoke check, freezes the comparison plan, executes the 732-job repeated study, and generates both statistical and profile analyses. Stages remain sequential even with `make -j`. It requires Make, Bash, Python 3.11+, Git and a Go toolchain compatible with the upstream checkout; see the version requirements below. The command creates `bin/` automatically.
 
-The default upstream path is `../go-lru`; add `UPSTREAM_REPO=/path/to/go-lru` to select another checkout. The upstream working tree must be clean. Choose a fresh `RUN_ID` each time: existing binaries or result paths are refused. IDs must start with an ASCII letter or digit and contain only letters, digits, dots, underscores or hyphens. Results go to `results/smoke-<RUN_ID>` and `results/repeated-<RUN_ID>`, with the pipeline log, executed script, commands and status in `results/workflow-<RUN_ID>`. See the [workflow artifact paths](docs/DIAGNOSTICS.md#freeze-and-run-the-repeated-study) and the manual smoke commands below.
+The default upstream path is `../go-lru`; add `UPSTREAM_REPO=/path/to/go-lru` to select another checkout. The upstream working tree must be clean. Choose a fresh `RUN_ID` each time: existing binaries or result paths are refused. IDs must start with an ASCII letter or digit and contain only letters, digits, dots, underscores or hyphens. See the [complete workflow guide](docs/DIAGNOSTICS.md#freeze-and-run-the-repeated-study) and the manual smoke commands below.
 
 ## Quick start
 
@@ -38,9 +36,9 @@ run_id=$(date +%Y%m%d-%H%M%S)-$$
   examples/smoke.json "results/smoke-$run_id" smoke
 ```
 
-This executes **18 fresh processes**: 3 backends × 3 cases × 2 repetitions. Open `report.html` or read `report.md` in the output directory. HTML includes metric/sample-count tables, quality warnings and heap/RSS plots with phase markers. It works offline without remote scripts.
+This executes **18 fresh processes**: 3 backends × 3 cases × 2 repetitions. The generated HTML report includes metric/sample-count tables, quality warnings and heap/RSS plots with phase markers. It works offline without remote scripts.
 
-The wrapper saves its exact source as `executed-script.sh` and the original benchmark command as `executed-command.sh` alongside the run. Replace `examples/smoke.json` with a study configuration when ready. Direct `lrugcbench run` calls also record their command, effective configuration, log and replay script.
+The [wrapper](scripts/run-recorded.sh) records the execution commands and settings for reproducibility. Replace [smoke.json](examples/smoke.json) with a study configuration when ready.
 
 Worker builds and runs refuse existing output paths. `report -dir <run>` regenerates derived reports from an existing run. Smoke runs establish functionality; warnings flag short phases and inadequate repetition/latency/GC sample counts before performance interpretation.
 
@@ -58,9 +56,9 @@ comparison_id=$(date +%Y%m%d-%H%M%S)-$$
   -config examples/smoke.json -out "results/paired-$comparison_id"
 ```
 
-Each pair runs the same job in baseline/candidate workers consecutively, alternating A/B and B/A order across pairs. All processes run sequentially. Results are saved under `base/`, `candidate/`, `comparison/`; `paired.json` records the schedule and status. Comparison is generated only after every job and the integrity checks succeed.
+Each pair runs the same job in baseline/candidate workers consecutively, alternating A/B and B/A order across pairs. All processes run sequentially. Comparison is generated only after every job and the integrity checks succeed.
 
-For existing separate runs:
+For two separate runs you have already performed:
 
 ```sh
 ./bin/lrugcbench compare -base results/base-run -candidate results/candidate-run \
@@ -98,7 +96,7 @@ Start with calibration and the narrow baseline, then add footprint, concurrency,
 
 For repeated measurements, [prepare and run the frozen 732-job protocol](docs/DIAGNOSTICS.md#freeze-and-run-the-repeated-study) with `scripts/run-repeated-study.sh`. Preparation saves binary/configuration hashes and the comparison policy before execution.
 
-For the follow-up controls, `scripts/run-diagnostics.sh CONTROLLER WORKER NEW_OUTPUT [pilot|full]` records and runs the diagnostic sequence, then saves profile analyses. The default pilot uses 124 fresh workers with shorter operation budgets; the full mode uses the unchanged example protocols. See [the recorded diagnostic sequence](docs/DIAGNOSTICS.md#run-the-recorded-diagnostic-sequence) for exact reductions, artifact paths and interpretation limits.
+For the follow-up controls, `scripts/run-diagnostics.sh CONTROLLER WORKER NEW_OUTPUT [pilot|full]` records and runs the diagnostic sequence, then analyzes profiles. The default pilot uses 124 fresh workers with shorter operation budgets; the full mode uses the unchanged example protocols. See [the recorded diagnostic sequence](docs/DIAGNOSTICS.md#run-the-recorded-diagnostic-sequence) for exact reductions and interpretation limits.
 
 `GOMEMLIMIT` is a soft Go runtime limit, not an RSS cap. Read retained-entry counts, hit rates and pressure evictions alongside memory results. The full pressure matrix retains up to 48.8 MiB of value payload alone: its 32 MiB profile is a deliberate stress case and can run much longer with pressure reclamation disabled.
 
@@ -129,15 +127,7 @@ Set `sample_interval="0"` to disable periodic sampling and `latency_sample_every
 
 The [diagnostic guide](docs/DIAGNOSTICS.md) explains `cache_mode`, matched pressure controls, per-phase profiles and Compact windows. Harness controls use no real cache. Independent caches retain a full configured capacity per worker. Profiled runs and periodic cache-stat observers perturb the measured workload and are labeled accordingly.
 
-A run contains `manifest.json` (config, order, provenance, status), `raw/` requests/results/stderr, `summary.json`, `summary.csv`, `samples.csv`, `request-trace.csv`, `compact-observations.csv`, `report.md` and `report.html`. It also saves the effective `config.json`, original command/cwd in `command.json`, `run.log`, and an executable `reproduce.sh` before launching workers. Failed or timed-out jobs keep diagnostics and never become zero-valued successful measurements; the command exits unsuccessfully if any job fails.
-
-Replay a saved run into a fresh output directory:
-
-```sh
-"./results/smoke-$run_id/reproduce.sh" results/smoke-replay-new
-```
-
-The script uses the saved configuration and original controller/worker paths. Set `LRUGCBENCH_CONTROLLER` or `LRUGCBENCH_WORKER` to use relocated binaries. A paired root also has a replay script and supports `LRUGCBENCH_BASE_WORKER` and `LRUGCBENCH_CANDIDATE_WORKER`. Replay the paired root to preserve A/B scheduling; scripts inside `base/` and `candidate/` rerun one side individually. Keep the saved result directory in place, or adjust the script's absolute configuration path if relocating it. Runtime settings come from the configuration; the original host and ambient environment are not recreated.
+Failed or timed-out jobs never become zero-valued successful measurements; the command exits unsuccessfully if any job fails. Repeating a configuration does not recreate the original host load or ambient environment.
 
 ## Development and validation
 
@@ -146,7 +136,7 @@ go test -race ./...
 go vet ./...
 ```
 
-Build an actual worker and run smoke for upstream integration. `cmd/reference-worker` and `validation/reference-*` test the harness only and **are not google/go-lru performance evidence**. [VALIDATION.md](validation/VALIDATION.md) separates actual-backend validation from historical authoring-environment checks.
+Build an actual worker and run smoke for upstream integration. `cmd/reference-worker` tests the harness only and **is not google/go-lru performance evidence**. [VALIDATION.md](validation/VALIDATION.md) separates actual-backend validation from historical authoring-environment checks.
 
 Code lives in `cmd/lrugcbench` (CLI), `bench` (execution, metrics, reports), `internal/buildworker` (typed adapter generation) and `internal/reference` (validation-only cache). `example.com/lrugcbench` is a local module identifier, not a published package claim.
 
