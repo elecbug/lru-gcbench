@@ -103,7 +103,7 @@ func AdapterSource(p bench.Provenance) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return format.Source([]byte(fmt.Sprintf(adapterTemplate, strconv.Quote(string(b)))))
+	return format.Source(fmt.Appendf(nil, adapterTemplate, strconv.Quote(string(b))))
 }
 
 // Build compiles against an EXISTING checkout. It does not fetch or modify it.
