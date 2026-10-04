@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "repetitions": 2,
+  "seed": 42,
+  "timeout": "2m",
+  "backends": ["map", "radix", "arena"],
+  "runtimes": [
+    {"name": "control", "gomaxprocs": 2, "gogc": 100, "gomemlimit": "128MiB"}
+  ],
+  "cases": [
+    {"name": "scalar-footprint", "scenario": "footprint", "capacity": 10000, "key_kind": "flat", "value_kind": "scalar", "sample_interval": "0"},
+    {"name": "bytes-steady", "scenario": "steady", "capacity": 10000, "key_kind": "prefix", "value_kind": "bytes", "value_bytes": 256, "workers": 2, "warmup_ops": 20000, "operations": 200000, "read_percent": 80, "sample_interval": "10ms", "max_samples": 2048, "latency_sample_every": 128},
+    {"name": "bytes-reclaim", "scenario": "reclaim", "capacity": 10000, "key_kind": "prefix", "value_kind": "bytes", "value_bytes": 256, "workers": 1, "operations": 200000, "read_percent": 80, "delete_fraction": 0.75, "sample_interval": "10ms", "max_samples": 2048}
+  ]
+}

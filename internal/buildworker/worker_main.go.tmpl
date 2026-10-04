@@ -1,0 +1,69 @@
+// Generated adapter for google/go-lru. No files are added to the target checkout.
+package main
+
+import (
+ "encoding/json"
+ "fmt"
+ "math"
+ "os"
+
+ "example.com/lrugcbench/bench"
+ lru "github.com/google/go-lru"
+)
+
+const provenanceJSON = %s
+
+type scalar struct { A, B uint64 }
+
+type adapter[V any] struct {
+ cache lru.PressureAwareCache[V]
+ makeValue func(uint64) V
+}
+func(a *adapter[V])Put(k string,id uint64)error{_,err:=a.cache.Put(k,a.makeValue(id));return err}
+func(a *adapter[V])Get(k string)bool{_,ok:=a.cache.Get(k);return ok}
+func(a *adapter[V])Delete(k string)bool{_,ok:=a.cache.Delete(k);return ok}
+func(a *adapter[V])DeletePrefix(prefix string){a.cache.DeletePrefix(prefix)}
+func(a *adapter[V])Compact(){a.cache.Compact()}
+func(a *adapter[V])Stats()bench.CacheStats{
+ s:=a.cache.Stats()
+ return bench.CacheStats{
+  Entries:s.Len,CurrentSize:s.CurrentSize,MaxSize:s.MaxSize,
+  GetHits:s.GetHits,GetMisses:s.GetMisses,EvictionsCapacity:s.EvictionsCapacity,
+  EvictionsPressure:s.EvictionsPressure,EvictionsDeleted:s.EvictionsDeleted,
+  CompactionsExplicit:s.CompactionsExplicit,CompactionsPressureTier1:s.CompactionsPressureTier1,
+  CompactionsPressureTier2:s.CompactionsPressureTier2,CompactionsAutoSlack:s.CompactionsAutoSlack,
+  MemoryPressure:s.MemoryPressure,ArenaLiveNodes:s.ArenaLiveNodes,ArenaFreeNodes:s.ArenaFreeNodes,
+  ArenaUnallocatedCap:s.ArenaUnallocatedCap,
+ }
+}
+func newTyped[V any](c bench.Case,opts []lru.Option,maker func(uint64)V)(bench.Cache,error){
+ cache:=lru.New[V](uint64(c.Capacity),opts...)
+ aware,ok:=cache.(lru.PressureAwareCache[V]);if !ok{return nil,fmt.Errorf("backend lacks PressureAwareCache")}
+ return &adapter[V]{cache:aware,makeValue:maker},nil
+}
+func factory(name string,c bench.Case)(bench.Cache,error){
+ var backend lru.Backend
+ switch name{case "map":backend=lru.BackendMap;case "radix":backend=lru.BackendRadix;case "arena":backend=lru.BackendArenaRadix
+ default:return nil,fmt.Errorf("unknown backend: %%s",name)}
+ opts:=[]lru.Option{lru.WithBackend(backend)}
+ if !c.PressureReclamation{
+  // Do NOT inject a custom zero-valued PressureFunc: it would change the
+  // sampling/reentrancy path. Keep the built-in probe; disable just its thresholds.
+  // Structural/auto-slack compaction remains enabled and is reported separately.
+  opts=append(opts,lru.WithCompactionThreshold(math.MaxFloat64),lru.WithEvictionThreshold(math.MaxFloat64))
+ }
+ switch c.ValueKind{
+ case "scalar":return newTyped(c,opts,func(id uint64)scalar{return scalar{A:id,B:id^0x9e3779b97f4a7c15}})
+ case "bytes":return newTyped(c,opts,func(id uint64)[]byte{
+  v:=make([]byte,c.ValueBytes)
+  // Touch the entire independently allocated payload, not just its header.
+  for i:=range v{v[i]=byte(id+uint64(i))};return v
+ })
+ default:return nil,fmt.Errorf("unknown value kind: %%s",c.ValueKind)
+ }
+}
+func main(){
+ var p bench.Provenance
+ if err:=json.Unmarshal([]byte(provenanceJSON),&p);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}
+ os.Exit(bench.WorkerMain(factory,bench.Capabilities{SchemaVersion:1,Backends:[]string{"map","radix","arena"},Provenance:p}))
+}

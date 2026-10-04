@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "repetitions": 10,
+  "seed": 42,
+  "timeout": "2m",
+  "backends": [
+    "map",
+    "radix",
+    "arena"
+  ],
+  "runtimes": [
+    {
+      "name": "control",
+      "gomaxprocs": 2,
+      "gogc": 100,
+      "gomemlimit": "128MiB"
+    }
+  ],
+  "cases": [
+    {
+      "capacity": 10000,
+      "key_kind": "prefix",
+      "value_kind": "bytes",
+      "value_bytes": 256,
+      "delete_fraction": 0.75,
+      "sample_interval": "0",
+      "max_samples": 2048,
+      "workers": 1,
+      "operations": 2000000,
+      "read_percent": 80,
+      "scenario": "steady",
+      "name": "instrumentation-off",
+      "warmup_ops": 20000,
+      "latency_sample_every": 0
+    },
+    {
+      "capacity": 10000,
+      "key_kind": "prefix",
+      "value_kind": "bytes",
+      "value_bytes": 256,
+      "delete_fraction": 0.75,
+      "sample_interval": "10ms",
+      "max_samples": 2048,
+      "workers": 1,
+      "operations": 2000000,
+      "read_percent": 80,
+      "scenario": "steady",
+      "name": "instrumentation-on",
+      "warmup_ops": 20000,
+      "latency_sample_every": 128
+    }
+  ]
+}

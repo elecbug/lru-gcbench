@@ -1,0 +1,10 @@
+/bin/
+/results/
+*.building
+*.partial
+
+# Generated validation logs and reference-run results.
+# Keep validation summaries and reproducible experiment configurations.
+/validation/**/*.log
+/validation/**/*.jsonl
+/validation/reference-*/

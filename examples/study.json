@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "repetitions": 10,
+  "seed": 42,
+  "timeout": "10m",
+  "backends": ["map", "radix", "arena"],
+  "runtimes": [
+    {"name": "gc100-unlimited", "gomaxprocs": 4, "gogc": 100, "gomemlimit": "off"},
+    {"name": "gc50-unlimited", "gomaxprocs": 4, "gogc": 50, "gomemlimit": "off"},
+    {"name": "gc100-limit64", "gomaxprocs": 4, "gogc": 100, "gomemlimit": "64MiB"},
+    {"name": "gc100-limit128", "gomaxprocs": 4, "gogc": 100, "gomemlimit": "128MiB"}
+  ],
+  "cases": [
+    {"name": "scalar-footprint-100k", "scenario": "footprint", "capacity": 100000, "key_kind": "prefix", "value_kind": "scalar", "sample_interval": "0"},
+    {"name": "bytes-steady-100k", "scenario": "steady", "capacity": 100000, "key_kind": "prefix", "value_kind": "bytes", "value_bytes": 256, "pressure_reclamation": true, "workers": 4, "warmup_ops": 200000, "operations": 2000000, "read_percent": 90, "sample_interval": "20ms", "max_samples": 10000, "latency_sample_every": 1024},
+    {"name": "bytes-reclaim-100k", "scenario": "reclaim", "capacity": 100000, "key_kind": "prefix", "value_kind": "bytes", "value_bytes": 256, "workers": 1, "operations": 1000000, "read_percent": 90, "delete_fraction": 0.75, "sample_interval": "20ms", "max_samples": 10000}
+  ]
+}

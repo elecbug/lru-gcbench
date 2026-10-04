@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "repetitions": 2,
+  "seed": 42,
+  "timeout": "2m",
+  "backends": ["reference"],
+  "runtimes": [
+    {"name": "validation", "gomaxprocs": 2, "gogc": 100, "gomemlimit": "64MiB"}
+  ],
+  "cases": [
+    {"name": "reference-footprint", "scenario": "footprint", "capacity": 20000, "key_kind": "prefix", "value_kind": "bytes", "value_bytes": 256, "sample_interval": "0"},
+    {"name": "reference-steady", "scenario": "steady", "capacity": 20000, "key_kind": "prefix", "value_kind": "bytes", "value_bytes": 256, "workers": 2, "warmup_ops": 10000, "operations": 300000, "read_percent": 80, "sample_interval": "2ms", "max_samples": 2048, "latency_sample_every": 128},
+    {"name": "reference-reclaim", "scenario": "reclaim", "capacity": 20000, "key_kind": "prefix", "value_kind": "bytes", "value_bytes": 256, "workers": 1, "operations": 200000, "read_percent": 80, "delete_fraction": 0.75, "sample_interval": "2ms", "max_samples": 2048}
+  ]
+}
