@@ -8,6 +8,8 @@ One fresh OS worker process is the experimental unit. A suite runs workers seque
 
 The builder fingerprints `.go`, `.tmpl`, `go.mod` and `go.sum` inputs, excluding `.git`, `vendor`, `bin` and `results`. It records target commit/dirty state when available, the target and harness source hashes, and the build timestamp. The controller records the worker executable SHA256. The checkout must remain stable during compilation. This is a compilation-input fingerprint, not a hash of every repository byte; future `go:embed` assets would require extending the policy. Compilation uses `-mod=mod`, so vendor directories are not used.
 
+Every run saves the resolved configuration as `config.json`, the actual controller executable/hash, arguments and working directory in `command.json`, progress in `run.log`, and a `reproduce.sh` script before worker execution. These records also remain on failed attempts. `run-paired` records these files at the pair root and in each side; only the root script replays the alternating schedule. Reproduction requires a fresh output path and the recorded binaries/configuration, or explicit binary-path overrides described in the README. No ambient environment dump is stored, and replay does not reconstruct the original machine or host load.
+
 An API-fixture test checks generated code without executing the upstream implementation. The reference worker uses a distinct backend and provenance kind; it never represents MapCache, RadixCache or ArenaRadixCache. See [the validation record](../validation/VALIDATION.md) for the separation between these checks and actual-backend runs.
 
 ## Allocation and timing boundaries
@@ -18,7 +20,9 @@ Mixed worker goroutines, PRNG state and result buffers are prepared before the p
 
 Optional request timing surrounds the adapter call and limited outcome bookkeeping, excluding key creation and random selection. Put timing includes allocation and touching of a new payload. Each worker samples every Nth request from a seed-derived offset; instrumentation does not change its workload PRNG stream. Request histogram buckets have eight intervals per factor of two. Reported p99 values are bucket bounds, not exact population quantiles.
 
-`examples/calibration.json` holds workload settings fixed while turning both periodic sampling and request timing off/on. Its cases appear as separate groups because instrumentation belongs to the configuration identity. Compare their throughput and allocations in the same report; version comparison does not silently match different instrumentation settings. This estimates their combined overhead. Add a third case if separate clock and sampler overhead estimates are needed.
+Mixed workloads are closed-loop: a worker starts its next request only after its previous request completes. `workers` fixes concurrency, not offered requests per second. Sampled latencies describe those completed calls; they exclude an external arrival queue and cannot establish a service-level p99 under a fixed arrival rate. A stalled worker also starts fewer requests during the stall. Use a separate arrival-rate-controlled load generator when that is the question.
+
+`examples/calibration.json` holds workload settings fixed while turning both periodic sampling and request timing off/on. Its cases appear as separate groups because instrumentation belongs to the configuration identity. Compare their throughput and allocations in the same report; version comparison does not silently match different instrumentation settings. This measures their combined effect on the workload, including their different retained memory. With periodic sampling disabled, `newTracer` returns before allocating its sample buffer. With sampling enabled, it allocates and touches `max_samples` runtime-sample slots before baseline GC; the example retains 10,000 slots. That buffer is outside timed allocation deltas but remains live during the workload and can affect the GC heap goal and collection scheduling. Calibration therefore does not isolate clock or sampler CPU cost. An instrumentation-on run that is faster does not establish a speedup or zero overhead, and the aggregate results alone do not identify the cause. Additional controls are needed to separate buffer retention, sampler activity and request timing.
 
 Histogram formatting and bulk result serialization occur after measurement phases. Boundary histogram copies and task objects still occupy process memory. Post-GC heap minus baseline is an approximate incremental process footprint; dividing by retained entries does not make it a precise cache-owned byte count.
 
@@ -27,6 +31,8 @@ Histogram formatting and bulk result serialization occur after measurement phase
 Capacity uses the default unit weight, so it counts entries. There is no custom WithWeigher. Entry capacity, Go's soft memory limit and OS/container memory limits are distinct.
 
 Fills insert logical IDs `0..capacity-1`. Mixed reads and writes independently choose uniform keys from `[0,key_space)`; the default key space is twice capacity. Read misses do not insert. Writes construct a fresh value whether they insert or replace. Scalar values are pointer-free 16-byte values; byte values allocate and touch an independent slice on each Put.
+
+`read_percent=90` means 90% of requests are reads; it does not target a 90% hit rate. With uniform accesses, a full cache and a key space twice its capacity, a hit rate near 50% is expected. Pressure shedding and transient retention can lower it. Report hit rate and retained entries alongside throughput and memory, especially when pressure reclamation differs.
 
 Flat keys contain 16 ASCII hex bytes. Prefix keys use `tenant/<hex-digit>/objects/<16-hex-digits>` and group logical IDs by `id & 15`. Comparing flat and prefix keys changes both length and prefix sharing.
 
@@ -85,6 +91,10 @@ Quality warnings flag:
 
 These thresholds are heuristics, not evidence that a result above them has sufficient precision. Increase operations to capture more runtime behavior and inspect raw counts. A short phase may finish before any GC cycle; absent pause data does not establish zero GC cost.
 
+For performance studies, run a short pilot for every backend, then choose one fixed operation count that gives the fastest backend roughly 5–10 seconds of measured work. Use that same count across the comparison, and retain pilot results separately from the final repetitions. Do not stop each backend after a different number of operations to achieve equal durations: that changes its input stream and allocation volume. Fix the repetition count before examining final rankings; the supplied performance examples use 10 independent worker processes per group.
+
+At a sampling interval of 128 requests, 2,000,000 requests and 10% writes produce about 1,563 Put observations per job, on average. Only about 16 observations then lie in the top 1% of the sampled distribution. Ten repetitions provide repeated estimates; they do not turn each run's p99 into a precise tail measurement. Increase operations or sample more frequently if tail latency is central, and recalibrate instrumentation when sampling settings change.
+
 Each metric reports count, median, minimum and maximum. With at least six observations, `median_ci` provides an exact binomial/order-statistic interval whose coverage is at least 95%; achieved coverage is stored with the bounds. Fewer observations omit the interval because a finite interval of this kind cannot reach that coverage. The stated coverage assumes independent observations from the same continuous distribution; ties can make the interval conservative. Changing seeds, host drift, shared resource limits and consecutive A/B execution must be considered when applying that assumption. These intervals describe each group's median, not the difference between versions. They are not automatic significance or winner labels.
 
 ## Time series and HTML charts
@@ -107,14 +117,32 @@ Comparison emits JSON, CSV and Markdown with differences of medians. Individual 
 
 ## Cache-operation microbenchmarks
 
-The local upstream checkout already supplies per-operation benchmarks. To investigate method-level cost separately, run its benchmark suite from that checkout. For example, from `lru-gcbench/`:
+The local upstream checkout already supplies per-operation benchmarks. To investigate method-level cost separately, select bounded cases and record each group independently. From `lru-gcbench/`, the study uses the three backends' `Nested_Depth2` Get/Put cases and a separate prefix-deletion run:
 
 ```sh
-(cd ../go-lru && go test -run '^$' -bench '^Benchmark_(Get|Put|DeletePrefix)_' \
-  -benchmem -count=10 -benchtime=1s .) > results/upstream-microbench.txt
+microbench_id=$(date +%Y%m%d-%H%M%S)-$$
+./scripts/run-microbench-recorded.sh ../go-lru "results/micro-get-put-$microbench_id" \
+  '^Benchmark_(Get|Put)_(MapCache|RadixCache|ArenaRadixCache)$/^Nested_Depth2$' 10 1s 2
+./scripts/run-microbench-recorded.sh ../go-lru "results/micro-prefix-$microbench_id" \
+  '^Benchmark_DeletePrefix_(MapCache|RadixCache|ArenaRadixCache)$/^Nested_Depth2$' 10 100x 2
 ```
 
-Choose a fresh output filename to retain previous measurements. Repeat the same command and toolchain against baseline/candidate checkouts, then use `benchstat` if available to compare the Go benchmark output. `benchstat` is optional and is not installed or invoked by this harness. Review upstream benchmark setup when interpreting its allocation boundaries; these output formats and workloads are distinct from this runner's JSON results.
+The final arguments specify repetition count, benchmark duration or fixed iteration count, and Go benchmark CPU setting. `100x` makes each reported DeletePrefix measurement cover one cycle of 100 prefixes with 100 entries each. The upstream benchmark restores 10,000 entries with its timer stopped at the start of each cycle. An adaptive `1s` timed budget excludes that refill work and can take much longer in wall time; the fixed count bounds the requested measured work. Its ns/op averages across a shrinking cache over that deletion cycle.
+
+Optional unit-weight Put and arena Compact measurements, also used by the study, are recorded separately:
+
+```sh
+./scripts/run-microbench-recorded.sh ../go-lru "results/micro-update-$microbench_id" \
+  '^Benchmark_Put_UnitWeight_(Map|Radix|ArenaRadix)$' 10 1s 2
+./scripts/run-microbench-recorded.sh ../go-lru "results/micro-compact-$microbench_id" \
+  '^Benchmark_ArenaRadixCache_Compact$' 10 10x 2
+```
+
+These benchmarks reuse precomputed keys and scalar values. The default weighted Put case holds approximately 5,000 of its 10,000 keys and exercises eviction; the unit-weight Put case can hold all 10,000 and mostly updates existing keys after its initial fill. The Get case starts with all keys present. They are distinct from the mixed harness workload's key generation and fresh byte payloads. The Compact benchmark rebuilds 10,000 entries and deletes half with the timer stopped before every call. Its `reclaimed-B/op` output is the before/after forced-GC heap difference for the **last iteration only**, despite the per-op label; it is not an average across the 10 Compact calls.
+
+The wrapper saves `benchmark.txt`, `environment.txt`, `exit-status.txt`, the actual `executed-script.sh`, its original `executed-command.sh`, and `reproduce.sh` together. Each output directory must be new. Its replay script invokes Go against the original source path again; preserve the recorded toolchain and checkout revision. Repeat the same command and toolchain against baseline/candidate checkouts, then use `benchstat` if available to compare the Go benchmark output. `benchstat` is optional and is not installed or invoked by this harness. These benchmark outputs and workloads are distinct from the runner's JSON results.
+
+The microbenchmark wrapper explicitly sets `GOGC=100`, `GOMEMLIMIT=off`, `GOPROXY=off` and the recorded `GOCACHE`; replay restores that build-cache path. Required dependencies must already exist in the local module cache. These settings make its runtime assumptions explicit and avoid module-proxy downloads during a benchmark run.
 
 ## Boundary checks and scope
 

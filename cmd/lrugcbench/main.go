@@ -26,6 +26,7 @@ run-paired interleaves baseline and candidate jobs, alternating which side runs 
 Outputs are never silently overwritten. See README.md for methodology and caveats.`)
 }
 func execute(ctx context.Context, args []string) error {
+	ctx = bench.WithControllerInvocation(ctx, args)
 	if len(args) == 0 {
 		usage()
 		return nil

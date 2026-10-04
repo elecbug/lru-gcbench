@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "repetitions": 10,
+  "seed": 42,
+  "timeout": "5m",
+  "backends": [
+    "map",
+    "radix",
+    "arena"
+  ],
+  "runtimes": [
+    {
+      "name": "gc100-unlimited",
+      "gomaxprocs": 2,
+      "gogc": 100,
+      "gomemlimit": "off"
+    }
+  ],
+  "cases": [
+    {
+      "name": "individual-reclaim-100k",
+      "scenario": "reclaim",
+      "capacity": 100000,
+      "key_space": 200000,
+      "key_kind": "prefix",
+      "value_kind": "bytes",
+      "value_bytes": 256,
+      "pressure_reclamation": false,
+      "workers": 1,
+      "warmup_ops": 0,
+      "operations": 10000000,
+      "read_percent": 90,
+      "delete_fraction": 0.75,
+      "sample_interval": "20ms",
+      "max_samples": 10000,
+      "latency_sample_every": 128,
+      "delete_mode": "keys"
+    },
+    {
+      "name": "prefix-reclaim-100k",
+      "scenario": "reclaim",
+      "capacity": 100000,
+      "key_space": 200000,
+      "key_kind": "prefix",
+      "value_kind": "bytes",
+      "value_bytes": 256,
+      "pressure_reclamation": false,
+      "workers": 1,
+      "warmup_ops": 0,
+      "operations": 10000000,
+      "read_percent": 90,
+      "delete_fraction": 0.75,
+      "sample_interval": "20ms",
+      "max_samples": 10000,
+      "latency_sample_every": 128,
+      "delete_mode": "prefix"
+    },
+    {
+      "name": "concurrent-compact-100k",
+      "scenario": "concurrent-compact",
+      "capacity": 100000,
+      "key_space": 200000,
+      "key_kind": "prefix",
+      "value_kind": "bytes",
+      "value_bytes": 256,
+      "pressure_reclamation": false,
+      "workers": 2,
+      "warmup_ops": 0,
+      "operations": 10000000,
+      "read_percent": 90,
+      "delete_fraction": 0.75,
+      "sample_interval": "20ms",
+      "max_samples": 10000,
+      "latency_sample_every": 128,
+      "delete_mode": "keys"
+    }
+  ]
+}

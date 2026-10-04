@@ -2,6 +2,8 @@
 
 Raw logs and run results are local generated artifacts excluded from Git. Links to those artifacts resolve only in a workspace where the corresponding runs have been performed. This validation summary and the reduced pressure configuration are kept in version control.
 
+The subsequent [performance study record](PERFORMANCE-20261004.md) covers the rebuilt harness, saved execution scripts and longer experiment settings. The checks below document the earlier functional validation.
+
 ## Actual upstream integration
 
 **The actual google/go-lru implementation has been built and executed.** The earlier statement that only fixture/reference validation was possible described the authoring environment, not the current workspace.
@@ -48,7 +50,7 @@ The [reduced pressure config](improvements-20261004/pressure-validation.json) us
 | radix | 18,258 |
 | arena | 18,192 |
 
-All pressure-off jobs recorded zero pressure evictions. At 32 MiB, both settings recorded zero. These checks establish that the pressure path was exercised; they do not rank backend memory efficiency. Read retained entries and hit rates in the raw results. The full 90-job `examples/pressure.json` study and the 60-job calibration experiment were not run as part of this functional validation.
+All pressure-off jobs recorded zero pressure evictions. At 32 MiB, both settings recorded zero. These checks establish that the pressure path was exercised; they do not rank backend memory efficiency. Read retained entries and hit rates in the raw results. The then-current 90-job pressure study and 60-job calibration experiment were not run as part of this functional validation. The pressure example has since been expanded to 10 repetitions (180 jobs); later performance evidence is recorded separately.
 
 Run logs are [smoke-run.log](improvements-20261004/smoke-run.log), [extended-smoke-run.log](improvements-20261004/extended-smoke-run.log), [paired-run.log](improvements-20261004/paired-run.log) and [pressure-run.log](improvements-20261004/pressure-run.log). Reproduce the main checks from `lru-gcbench/` using the [README commands](../README.md); pass the saved reduced config to `run` for the pressure check. Build a fresh worker because existing binaries retain the harness source embedded at build time.
 

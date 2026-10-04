@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "repetitions": 5,
+  "repetitions": 10,
   "seed": 20261004,
   "timeout": "5m",
   "backends": [
@@ -44,7 +44,7 @@
       "read_percent": 90,
       "sample_interval": "20ms",
       "max_samples": 10000,
-      "latency_sample_every": 1024
+      "latency_sample_every": 128
     },
     {
       "name": "pressure-on-256B",
@@ -61,7 +61,7 @@
       "read_percent": 90,
       "sample_interval": "20ms",
       "max_samples": 10000,
-      "latency_sample_every": 1024
+      "latency_sample_every": 128
     }
   ]
 }

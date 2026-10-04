@@ -34,6 +34,7 @@ type Manifest struct {
 	Capabilities  Capabilities `json:"capabilities"`
 	Config        Config       `json:"config"`
 	Jobs          []JobRecord  `json:"jobs"`
+	Error         string       `json:"error,omitempty"`
 }
 
 func OverrideEnv(env []string, values map[string]string) []string {
@@ -117,7 +118,7 @@ type suiteRunner struct {
 	failed   int
 }
 
-func prepareSuite(ctx context.Context, worker string, c Config, out, label string) (*suiteRunner, error) {
+func prepareSuite(worker string, c Config, out, label string) (*suiteRunner, error) {
 	s := &suiteRunner{manifest: Manifest{SchemaVersion: 1, Label: label, CreatedAt: time.Now().UTC(), Config: c}}
 	if err := c.Validate(); err != nil {
 		return s, err
@@ -126,19 +127,6 @@ func prepareSuite(ctx context.Context, worker string, c Config, out, label strin
 	s.worker, err = filepath.Abs(worker)
 	if err != nil {
 		return s, err
-	}
-	s.manifest.WorkerSHA256, err = FileHash(s.worker)
-	if err != nil {
-		return s, err
-	}
-	s.manifest.Capabilities, err = describe(ctx, s.worker)
-	if err != nil {
-		return s, err
-	}
-	for _, b := range c.Backends {
-		if !slices.Contains(s.manifest.Capabilities.Backends, b) {
-			return s, fmt.Errorf("worker cannot run %q; supports %v", b, s.manifest.Capabilities.Backends)
-		}
 	}
 	s.out, err = filepath.Abs(out)
 	if err != nil {
@@ -149,6 +137,24 @@ func prepareSuite(ctx context.Context, worker string, c Config, out, label strin
 		s.manifest.Jobs = append(s.manifest.Jobs, JobRecord{Job: j, Status: "pending"})
 	}
 	return s, nil
+}
+
+func (s *suiteRunner) inspectWorker(ctx context.Context) error {
+	var err error
+	s.manifest.WorkerSHA256, err = FileHash(s.worker)
+	if err != nil {
+		return err
+	}
+	s.manifest.Capabilities, err = describe(ctx, s.worker)
+	if err != nil {
+		return err
+	}
+	for _, b := range s.manifest.Config.Backends {
+		if !slices.Contains(s.manifest.Capabilities.Backends, b) {
+			return fmt.Errorf("worker cannot run %q; supports %v", b, s.manifest.Capabilities.Backends)
+		}
+	}
+	return s.save()
 }
 
 // Mkdir reserves the final directory atomically, including against another
@@ -279,13 +285,25 @@ func (s *suiteRunner) finish(ctx context.Context) error {
 	return errors.Join(saveErr, reportErr, ctx.Err(), failed)
 }
 
-func RunSuite(ctx context.Context, worker string, c Config, out, label string, log io.Writer) (Manifest, error) {
-	s, err := prepareSuite(ctx, worker, c, out, label)
+func RunSuite(ctx context.Context, worker string, c Config, out, label string, log io.Writer) (manifest Manifest, runErr error) {
+	s, err := prepareSuite(worker, c, out, label)
 	if err != nil {
 		return s.manifest, err
 	}
 	if err = s.initialize(); err != nil {
 		return s.manifest, err
+	}
+	artifacts, err := writeRunArtifacts(ctx, s.out, c, suiteReplayArgs(s), "", log)
+	if err != nil {
+		return s.manifest, err
+	}
+	defer func() { runErr = errors.Join(runErr, artifacts.finish(runErr)) }()
+	log = artifacts.log
+	if err = s.inspectWorker(ctx); err != nil {
+		s.manifest.Error = err.Error()
+		now := time.Now().UTC()
+		s.manifest.FinishedAt = &now
+		return s.manifest, errors.Join(err, s.save())
 	}
 	for i := range s.manifest.Jobs {
 		if ctx.Err() != nil {

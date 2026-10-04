@@ -18,25 +18,7 @@
   ],
   "cases": [
     {
-      "name": "instrumentation-off",
-      "scenario": "steady",
-      "capacity": 100000,
-      "key_space": 200000,
-      "key_kind": "prefix",
-      "value_kind": "bytes",
-      "value_bytes": 256,
-      "pressure_reclamation": false,
-      "workers": 1,
-      "warmup_ops": 500000,
-      "operations": 25000000,
-      "read_percent": 90,
-      "delete_fraction": 0.75,
-      "sample_interval": "0",
-      "max_samples": 10000,
-      "latency_sample_every": 0
-    },
-    {
-      "name": "instrumentation-on",
+      "name": "bytes-steady-100k",
       "scenario": "steady",
       "capacity": 100000,
       "key_space": 200000,
