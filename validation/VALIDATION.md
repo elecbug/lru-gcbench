@@ -1,5 +1,7 @@
 # Validation record — 2026-10-04
 
+> Artifact retention update: The earlier `results/baseline/` and `results/improved-*` directories were removed during artifact cleanup on 2026-10-05. This report remains a historical summary; links to those removed raw artifacts no longer resolve. The [latest 732-job study](REPEATED-20261004.md), its raw results and its required binaries remain available.
+
 Raw logs and run results are local generated artifacts excluded from Git. Links to those artifacts resolve only in a workspace where the corresponding runs have been performed. This validation summary and the reduced pressure configuration are kept in version control.
 
 The subsequent [performance study record](PERFORMANCE-20261004.md) covers the rebuilt harness, saved execution scripts and longer experiment settings. The checks below document the earlier functional validation.
@@ -8,7 +10,7 @@ The subsequent [performance study record](PERFORMANCE-20261004.md) covers the re
 
 **The actual google/go-lru implementation has been built and executed.** The earlier statement that only fixture/reference validation was possible described the authoring environment, not the current workspace.
 
-The preserved [baseline manifest](../results/baseline/manifest.json) and [raw results](../results/baseline/raw/) record:
+The original [baseline manifest](../results/baseline/manifest.json) and [raw results](../results/baseline/raw/) record:
 
 | Evidence | Recorded result |
 |---|---|
@@ -20,7 +22,7 @@ The preserved [baseline manifest](../results/baseline/manifest.json) and [raw re
 | Actual backends | `map`, `radix`, `arena` |
 | Original smoke result | 18/18 jobs with status `ok` |
 
-This baseline was generated before the comparison/reporting/scenario improvements. Its manifests and raw results remain preserved; its original HTML does not demonstrate newly added chart or warning features. It is functional integration evidence, not a performance ranking.
+This baseline was generated before the comparison/reporting/scenario improvements. Its manifests and raw results were removed in the cleanup noted above; its original HTML did not demonstrate newly added chart or warning features. It is functional integration evidence, not a performance ranking.
 
 ## Validation of the improvements
 

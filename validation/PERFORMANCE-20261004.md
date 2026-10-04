@@ -1,5 +1,7 @@
 # Performance study — 2026-10-04
 
+> Artifact retention update: The earlier `results/performance-20261004/` directory and its obsolete binaries were removed during artifact cleanup on 2026-10-05. This report remains a historical summary; links to those removed raw artifacts no longer resolve. The [latest 732-job study](REPEATED-20261004.md), its raw results and its required binaries remain available.
+
 This record separates pilot measurements, functional validation and repeated performance experiments. Generated logs, scripts and raw results live under [`results/performance-20261004/`](../results/performance-20261004/) and are excluded from Git. Artifact links resolve only in a workspace containing that run.
 
 ## Completed experiment matrix

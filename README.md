@@ -10,6 +10,8 @@ The [diagnostic follow-up](validation/DIAGNOSTICS-20261004.md) completed 124 mai
 
 The completed [732-job repeated study](validation/REPEATED-20261004.md) adds ten repetitions per performance condition and six per profile condition, matched-seed effect intervals, explicit pressure-observer controls and complete Compact request traces. Saved scripts and raw/profile evidence accompany each result.
 
+Artifact cleanup on 2026-10-05 removed the earlier raw run directories and obsolete binaries. Their validation summaries remain as historical records. The latest 732-job study retains its raw results, profiles, scripts and both required binaries.
+
 ## Run the complete workflow
 
 From `lru-gcbench/`, run:

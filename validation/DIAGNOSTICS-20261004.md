@@ -1,5 +1,7 @@
 # Diagnostic follow-up — 2026-10-04
 
+> Artifact retention update: The earlier `results/diagnostics-20261004/` and `results/compact-dense-20261004/` directories were removed during artifact cleanup on 2026-10-05. This report remains a historical summary; links to those removed raw artifacts no longer resolve. The [latest 732-job study](REPEATED-20261004.md), its raw results and its required binaries remain available.
+
 All **124 requested jobs completed successfully**, followed by all 22 profile analyses. The driver exited with status zero and the independent integrity audit passed. This is a diagnostic pilot with two repetitions per unprofiled condition and one per profile condition; it does not establish a new performance ranking.
 
 A separate **four-job dense-trace follow-up also completed successfully**, bringing the total to **128 jobs**. Its instrumentation and operation budget differ; the 124-job scope and tables below remain separate from that supplement.
