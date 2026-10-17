@@ -10,6 +10,8 @@ The [diagnostic follow-up](validation/DIAGNOSTICS-20261004.md) completed 124 mai
 
 The completed [732-job repeated study](validation/REPEATED-20261004.md) summarizes ten repetitions per performance condition and six per profile condition, matched-seed effect intervals, explicit pressure-observer controls and observations from complete Compact request traces.
 
+The [PR #16 verification](validation/PR16-20261017.md) records strict/race checks, descendant-reentrancy reproductions and matched base/head performance comparisons for the pinned PR revision.
+
 ## Run the complete workflow
 
 From `lru-gcbench/`, run:
